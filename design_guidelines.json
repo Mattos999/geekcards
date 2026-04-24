@@ -1,0 +1,167 @@
+{
+  "theme": "dark",
+  "archetype": "5 (Jewel & Luxury)",
+  "design_philosophy": "Premium, distinctive, gamer-focused but refined. Like a pro TCG tool (MTG Arena / Marvel Snap deck builders). High contrast, immersive dark mode with rich, tactile surfaces and distinct color coding for the 14 Natures.",
+  "colors": {
+    "background": {
+      "base": "#020617",
+      "surface": "#0F172A",
+      "surface_elevated": "#1E293B",
+      "glass": "rgba(15, 23, 42, 0.7)"
+    },
+    "text": {
+      "primary": "#F8FAFC",
+      "secondary": "#94A3B8",
+      "muted": "#64748B",
+      "accent": "#818CF8"
+    },
+    "border": {
+      "default": "#1E293B",
+      "focus": "#6366F1",
+      "glow": "rgba(99, 102, 241, 0.5)"
+    },
+    "brand": {
+      "primary": "#6366F1",
+      "primary_hover": "#4F46E5",
+      "secondary": "#F59E0B",
+      "accent": "#0EA5E9"
+    },
+    "natures": {
+      "Anjo": "#FDE047",
+      "Demônio": "#991B1B",
+      "Entidade": "#7E22CE",
+      "Mago": "#3B82F6",
+      "Cavaleiro": "#94A3B8",
+      "Caçador": "#4D7C0F",
+      "Monstro": "#22C55E",
+      "Super": "#F59E0B",
+      "Agente": "#0EA5E9",
+      "Pirata": "#14B8A6",
+      "Herói": "#4338CA",
+      "Vilão": "#BE185D",
+      "Shinobi": "#1F2937",
+      "Dragão": "#DC2626"
+    },
+    "rarity": {
+      "1_star": "#94A3B8",
+      "2_star": "#3B82F6",
+      "3_star": "#F59E0B",
+      "alpha": "#EC4899"
+    },
+    "feedback": {
+      "success": "#10B981",
+      "warning": "#F59E0B",
+      "error": "#EF4444",
+      "info": "#3B82F6"
+    }
+  },
+  "typography": {
+    "font_family": {
+      "heading": "'Outfit', sans-serif",
+      "body": "'Manrope', sans-serif",
+      "mono": "'JetBrains Mono', monospace"
+    },
+    "scales": {
+      "h1": "text-4xl sm:text-5xl lg:text-6xl tracking-tight font-bold",
+      "h2": "text-2xl sm:text-3xl lg:text-4xl tracking-tight font-semibold",
+      "h3": "text-xl sm:text-2xl tracking-tight font-medium",
+      "h4": "text-lg sm:text-xl tracking-tight font-medium",
+      "body": "text-base leading-relaxed",
+      "small": "text-sm leading-snug",
+      "overline": "text-xs uppercase tracking-[0.2em] font-semibold"
+    },
+    "rules": {
+      "headings_no_inter": true,
+      "fluid_scaling_max_6xl": true,
+      "no_bold_default": true
+    }
+  },
+  "spacing_and_layout": {
+    "philosophy": "Generous spacing. Bento grid protocol for dashboards. Mobile-first grids.",
+    "containers": {
+      "page": "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8",
+      "card_padding": "p-6 sm:p-8",
+      "section_gap": "gap-12 md:gap-24"
+    },
+    "grid_patterns": {
+      "dashboard_control_room": "grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6",
+      "deck_builder": "grid grid-cols-1 lg:grid-cols-12 gap-8 (Filters: col-span-3, Library: col-span-6, Deck: col-span-3)",
+      "card_grid": "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4"
+    }
+  },
+  "surfaces_and_materials": {
+    "glassmorphism": "backdrop-blur-xl bg-slate-900/70 border border-slate-700/50 shadow-[0_8px_32px_rgba(0,0,0,0.2)]",
+    "card_base": "bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg",
+    "card_hover": "hover:-translate-y-1 hover:shadow-2xl hover:border-slate-600 transition-all duration-300",
+    "tracing_beam": "mask-image dynamic border glow",
+    "retro_terminal": "bg-black border border-indigo-500/50 drop-shadow-[0_0_8px_rgba(99,102,241,0.5)]"
+  },
+  "components": {
+    "navigation": {
+      "style": "Glassmorphism sticky header. Must have z-50.",
+      "links": "Hover state: text-white. Active state: text-indigo-400."
+    },
+    "buttons": {
+      "primary": "bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg px-6 py-3 font-medium transition-colors border border-indigo-500",
+      "secondary": "bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg px-6 py-3 font-medium transition-colors border border-slate-700",
+      "outline": "bg-transparent hover:bg-slate-800 text-slate-300 rounded-lg px-6 py-3 font-medium transition-colors border border-slate-700"
+    },
+    "forms": {
+      "inputs": "bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 text-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors",
+      "labels": "block text-sm font-medium text-slate-400 mb-2"
+    },
+    "game_card": {
+      "aspect_ratio": "aspect-[2.5/3.5]",
+      "structure": "Relative container. Background image with gradient overlay (bg-gradient-to-t from-black via-black/40 to-transparent). Absolute positioned stats at bottom, nature icons at top left, rarity at top right.",
+      "types": "Personagem, Item, Mestre, Energia"
+    },
+    "charts": {
+      "library": "Recharts (Radar chart for Nature coverage, Bar chart for Mana/Stat curve). Must use transparent backgrounds and match theme colors."
+    }
+  },
+  "animations_and_interactions": {
+    "hover": "Explicitly set hover:text-white or lighter shades. Use transition-all duration-200 ease-in-out.",
+    "focus": "focus:ring-2 focus:ring-indigo-500 focus:outline-none focus:ring-offset-2 focus:ring-offset-slate-950",
+    "page_transitions": "Framer Motion staggered children for grid lists (e.g., card library loading in sequence).",
+    "micro_interactions": "Card tilt effect (react-parallax-tilt) for 3D premium feel on hover."
+  },
+  "icons_and_assets": {
+    "icon_library": "lucide-react for UI, @phosphor-icons/react for rich/dense dashboard sections if needed.",
+    "images": {
+      "hero_bg": {
+        "url": "https://images.unsplash.com/photo-1622969309378-d8f04f392fb0?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAxODF8MHwxfHNlYXJjaHwyfHxteXN0aWNhbCUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzc3MDM4ODg0fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Mystical dark background with orange/black clouds for login/signup pages",
+        "category": "background"
+      },
+      "card_texture": {
+        "url": "https://images.unsplash.com/photo-1602475063211-3d98d60e3b1f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzV8MHwxfHNlYXJjaHwxfHxkYXJrJTIwdGV4dHVyZXxlbnwwfHx8fDE3NzcwMzg4Nzl8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Black textile texture for card backs or empty card slots",
+        "category": "texture"
+      },
+      "magic_energy": {
+        "url": "https://images.pexels.com/photos/12489170/pexels-photo-12489170.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Swirling purple flame on black for magical accents or Entidade/Mago natures",
+        "category": "accent"
+      },
+      "placeholder_card_art": {
+        "url": "https://images.unsplash.com/photo-1763336313945-d653671933cd?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1MDV8MHwxfHNlYXJjaHwyfHxmYW50YXN5JTIwY2FyZHxlbnwwfHx8fDE3NzcwMzg4ODR8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Abstract fantasy card art placeholder",
+        "category": "card_art"
+      }
+    }
+  },
+  "testing": {
+    "data_testid": "All interactive and key informational elements MUST include a data-testid attribute (kebab-case, role-based)."
+  },
+  "instructions_to_main_agent": [
+    "Use pure HTML/Tailwind for the visual Game Card component (do not use Shadcn card for the actual playing card, use raw div with aspect-ratio, absolute positioning, and the 'card_texture' background for empty state).",
+    "Use Shadcn UI for the dashboard scaffolding (Sidebar, Navigation, Forms, Modals).",
+    "Implement the 14 Natures as a constant mapping to colors, and use these colors for badges, borders, and chart data.",
+    "For the Deck Strategic Analysis, use Recharts to build a RadarChart showing the balance of Natures in the deck, and a BarChart for the curve.",
+    "Ensure the Card Builder has a real-time preview of the card as the user fills out the form.",
+    "Implement drag-and-drop or simple click-to-add for moving cards from the Library to the Deck list.",
+    "Deck rules enforcement: Max 20 cards, max 2 duplicates (check ALPHA rules if provided). Display visual warnings if rules are broken.",
+    "DO NOT USE INTER, ROBOTO, LATO for headings. Use Outfit. Use Manrope for body text.",
+    "Use the provided image URLs for backgrounds, textures, and placeholders. Never use via.placeholder.com."
+  ]
+}
