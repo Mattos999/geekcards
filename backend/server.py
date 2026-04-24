@@ -501,18 +501,23 @@ async def startup():
     # Seed admin user
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@geekcards.com").lower()
     admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
+    admin_password_hash = hash_password(admin_password)
     existing = await db.users.find_one({"email": admin_email})
     if not existing:
         await db.users.insert_one({
             "id": str(uuid.uuid4()),
             "email": admin_email, "name": "Admin", "role": "admin",
-            "password_hash": hash_password(admin_password),
+            "password_hash": admin_password_hash,
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
         logger.info("Admin seeded")
-    elif existing.get("role") != "admin":
-        await db.users.update_one({"email": admin_email}, {"$set": {"role": "admin"}})
-        logger.info("Admin role updated")
+    else:
+        # Always ensure admin has correct password and role
+        await db.users.update_one(
+            {"email": admin_email},
+            {"$set": {"role": "admin", "password_hash": admin_password_hash}}
+        )
+        logger.info("Admin user updated")
 
 
 @app.on_event("shutdown")
