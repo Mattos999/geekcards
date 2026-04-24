@@ -1,51 +1,52 @@
-import { useEffect } from "react";
+import React from "react";
 import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { AuthProvider, useAuth } from "./lib/auth";
+import { Layout } from "./components/Layout";
+import LoginPage from "./pages/LoginPage";
+import RegisterPage from "./pages/RegisterPage";
+import DashboardPage from "./pages/DashboardPage";
+import CardLibraryPage from "./pages/CardLibraryPage";
+import CardBuilderPage from "./pages/CardBuilderPage";
+import DeckListPage from "./pages/DeckListPage";
+import DeckBuilderPage from "./pages/DeckBuilderPage";
+import { Loader2 } from "lucide-react";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
-
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
-
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
-
-  return (
-    <div>
-      <header className="App-header">
-        <a
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
+function Protected({ children }) {
+  const { user, loading } = useAuth();
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-950">
+      <Loader2 className="animate-spin text-indigo-400" size={24} />
     </div>
   );
-};
+  if (!user) return <Navigate to="/login" replace />;
+  return <Layout>{children}</Layout>;
+}
+
+function PublicOnly({ children }) {
+  const { user, loading } = useAuth();
+  if (loading) return null;
+  if (user) return <Navigate to="/" replace />;
+  return children;
+}
 
 function App() {
   return (
     <div className="App">
       <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
-        </Routes>
+        <AuthProvider>
+          <Routes>
+            <Route path="/login" element={<PublicOnly><LoginPage /></PublicOnly>} />
+            <Route path="/register" element={<PublicOnly><RegisterPage /></PublicOnly>} />
+            <Route path="/" element={<Protected><DashboardPage /></Protected>} />
+            <Route path="/cards" element={<Protected><CardLibraryPage /></Protected>} />
+            <Route path="/cards/new" element={<Protected><CardBuilderPage /></Protected>} />
+            <Route path="/cards/:id/edit" element={<Protected><CardBuilderPage /></Protected>} />
+            <Route path="/decks" element={<Protected><DeckListPage /></Protected>} />
+            <Route path="/decks/:id" element={<Protected><DeckBuilderPage /></Protected>} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </AuthProvider>
       </BrowserRouter>
     </div>
   );
