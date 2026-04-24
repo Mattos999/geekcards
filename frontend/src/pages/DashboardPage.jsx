@@ -15,8 +15,8 @@ export default function DashboardPage() {
     (async () => {
       try {
         const [c, d] = await Promise.all([api.get("/cards"), api.get("/decks")]);
-        setCards(c.data);
-        setDecks(d.data);
+        setCards(Array.isArray(c.data) ? c.data : []);
+        setDecks(Array.isArray(d.data) ? d.data : []);
       } catch (e) { toast.error(formatApiError(e)); }
     })();
   }, []);
