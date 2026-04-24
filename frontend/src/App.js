@@ -10,6 +10,7 @@ import CardLibraryPage from "./pages/CardLibraryPage";
 import CardBuilderPage from "./pages/CardBuilderPage";
 import DeckListPage from "./pages/DeckListPage";
 import DeckBuilderPage from "./pages/DeckBuilderPage";
+import NaturesPage from "./pages/NaturesPage";
 import { Loader2 } from "lucide-react";
 
 function Protected({ children }) {
@@ -44,6 +45,7 @@ function App() {
             <Route path="/cards/:id/edit" element={<Protected><CardBuilderPage /></Protected>} />
             <Route path="/decks" element={<Protected><DeckListPage /></Protected>} />
             <Route path="/decks/:id" element={<Protected><DeckBuilderPage /></Protected>} />
+            <Route path="/naturezas" element={<Protected><NaturesPage /></Protected>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </AuthProvider>

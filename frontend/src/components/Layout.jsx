@@ -1,6 +1,6 @@
 import React from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Library, Layers, LogOut, Plus, Sparkles } from "lucide-react";
+import { LayoutDashboard, Library, Layers, LogOut, Plus, Sparkles, Shield } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import { Toaster } from "./ui/sonner";
 
@@ -12,6 +12,7 @@ export const Layout = ({ children }) => {
     { to: "/", icon: LayoutDashboard, label: "Dashboard", testid: "nav-dashboard" },
     { to: "/cards", icon: Library, label: "Biblioteca", testid: "nav-cards" },
     { to: "/decks", icon: Layers, label: "Meus Decks", testid: "nav-decks" },
+    { to: "/naturezas", icon: Shield, label: "Naturezas", testid: "nav-naturezas" },
   ];
 
   return (
