@@ -8,7 +8,8 @@ import { toast } from "sonner";
 
 const BLANK = {
   name: "", card_type: "Personagem", natures: [], rarity: 1, is_alpha: false,
-  hp: 100, damage: 20, recuo: 1, abilities: "", energy_type: null, image_url: null, description: ""
+  hp: 100, damage: 20, recuo: 1, abilities: "", energy_type: null, image_url: null, description: "",
+  public_status: "private"
 };
 
 export default function CardBuilderPage() {
@@ -215,6 +216,41 @@ export default function CardBuilderPage() {
                 <div className="text-xs text-slate-500">Imagem carregada</div>
                 <button onClick={() => set("image_url", null)} className="text-slate-400 hover:text-rose-400">
                   <X size={14} />
+                </button>
+              </div>
+            )}
+          </section>
+
+          {/* Community sharing */}
+          <section className="glass rounded-xl p-6">
+            <h3 className="text-sm uppercase tracking-widest text-slate-400 mb-4">Comunidade</h3>
+            {card.public_status === "approved" ? (
+              <div className="flex items-center gap-2 text-sm text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3">
+                <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                Aprovada — visível na biblioteca pública.
+              </div>
+            ) : card.public_status === "pending" ? (
+              <div className="flex items-center gap-2 text-sm text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+                <span className="w-2 h-2 rounded-full bg-amber-400" />
+                Aguardando aprovação do admin.
+              </div>
+            ) : card.public_status === "rejected" ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-lg p-3">
+                  <span className="w-2 h-2 rounded-full bg-rose-400" />
+                  Rejeitada pelo admin.
+                </div>
+                <button type="button" onClick={() => set("public_status", "pending")} data-testid="card-submit-public-btn"
+                  className="text-xs px-3 py-1.5 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/40 text-indigo-200">
+                  Reenviar para aprovação
+                </button>
+              </div>
+            ) : (
+              <div>
+                <p className="text-xs text-slate-500 mb-3">Envie para a biblioteca comunitária. Um admin irá revisar e aprovar.</p>
+                <button type="button" onClick={() => set("public_status", "pending")} data-testid="card-submit-public-btn"
+                  className="text-sm px-4 py-2 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/40 text-indigo-200">
+                  Solicitar publicação
                 </button>
               </div>
             )}

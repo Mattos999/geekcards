@@ -1,6 +1,6 @@
 import React from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Library, Layers, LogOut, Plus, Sparkles, Shield } from "lucide-react";
+import { LayoutDashboard, Library, Layers, LogOut, Plus, Sparkles, Shield, Users, ShieldCheck } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import { Toaster } from "./ui/sonner";
 
@@ -12,8 +12,12 @@ export const Layout = ({ children }) => {
     { to: "/", icon: LayoutDashboard, label: "Dashboard", testid: "nav-dashboard" },
     { to: "/cards", icon: Library, label: "Biblioteca", testid: "nav-cards" },
     { to: "/decks", icon: Layers, label: "Meus Decks", testid: "nav-decks" },
+    { to: "/comunidade", icon: Users, label: "Comunidade", testid: "nav-community" },
     { to: "/naturezas", icon: Shield, label: "Naturezas", testid: "nav-naturezas" },
   ];
+  if (user?.role === "admin") {
+    links.push({ to: "/admin/moderacao", icon: ShieldCheck, label: "Moderação", testid: "nav-admin" });
+  }
 
   return (
     <div className="min-h-screen flex bg-slate-950 text-slate-100">

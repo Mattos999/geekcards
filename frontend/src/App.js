@@ -11,6 +11,8 @@ import CardBuilderPage from "./pages/CardBuilderPage";
 import DeckListPage from "./pages/DeckListPage";
 import DeckBuilderPage from "./pages/DeckBuilderPage";
 import NaturesPage from "./pages/NaturesPage";
+import CommunityPage from "./pages/CommunityPage";
+import AdminModerationPage from "./pages/AdminModerationPage";
 import { Loader2 } from "lucide-react";
 
 function Protected({ children }) {
@@ -46,6 +48,8 @@ function App() {
             <Route path="/decks" element={<Protected><DeckListPage /></Protected>} />
             <Route path="/decks/:id" element={<Protected><DeckBuilderPage /></Protected>} />
             <Route path="/naturezas" element={<Protected><NaturesPage /></Protected>} />
+            <Route path="/comunidade" element={<Protected><CommunityPage /></Protected>} />
+            <Route path="/admin/moderacao" element={<Protected><AdminModerationPage /></Protected>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </AuthProvider>

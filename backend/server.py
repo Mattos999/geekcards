@@ -64,6 +64,7 @@ class CardCreate(BaseModel):
     energy_type: Optional[str] = None  # for Energia cards
     image_url: Optional[str] = None
     description: str = ""
+    public_status: str = "private"  # private | pending | approved | rejected
 
 
 class Card(CardCreate):
@@ -102,13 +103,14 @@ async def register(body: UserCreate, response: Response):
     user_id = str(uuid.uuid4())
     user_doc = {
         "id": user_id, "email": email, "name": body.name,
+        "role": "user",
         "password_hash": hash_password(body.password),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.users.insert_one(user_doc)
     token = create_access_token(user_id, email)
     set_auth_cookie(response, token)
-    return {"id": user_id, "email": email, "name": body.name, "token": token}
+    return {"id": user_id, "email": email, "name": body.name, "role": "user", "token": token}
 
 
 @api_router.post("/auth/login")
@@ -119,7 +121,7 @@ async def login(body: UserLogin, response: Response):
         raise HTTPException(status_code=401, detail="Email ou senha inválidos")
     token = create_access_token(user["id"], email)
     set_auth_cookie(response, token)
-    return {"id": user["id"], "email": email, "name": user["name"], "token": token}
+    return {"id": user["id"], "email": email, "name": user["name"], "role": user.get("role", "user"), "token": token}
 
 
 @api_router.post("/auth/logout")
@@ -131,7 +133,7 @@ async def logout(response: Response):
 @api_router.get("/auth/me")
 async def me(request: Request):
     user = await get_current_user(request, db)
-    return {"id": user["id"], "email": user["email"], "name": user["name"]}
+    return {"id": user["id"], "email": user["email"], "name": user["name"], "role": user.get("role", "user")}
 
 
 # ============ Natures endpoints ============
@@ -249,6 +251,87 @@ async def delete_card(card_id: str, request: Request):
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Carta não encontrada")
     return {"ok": True}
+
+
+# ============ Community library ============
+@api_router.get("/community/cards")
+async def community_cards(request: Request, q: str = "", nature: str = "", card_type: str = ""):
+    # Require auth but show all approved cards
+    await get_current_user(request, db)
+    query = {"public_status": "approved"}
+    if nature:
+        query["natures"] = nature
+    if card_type:
+        query["card_type"] = card_type
+    if q:
+        query["name"] = {"$regex": q, "$options": "i"}
+    cards = await db.cards.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    # Fetch owner names in one query
+    user_ids = list({c["user_id"] for c in cards})
+    users = await db.users.find({"id": {"$in": user_ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(500)
+    name_by_id = {u["id"]: u["name"] for u in users}
+    for c in cards:
+        c["owner_name"] = name_by_id.get(c["user_id"], "Desconhecido")
+    return cards
+
+
+@api_router.post("/cards/{card_id}/clone")
+async def clone_card(card_id: str, request: Request):
+    user = await get_current_user(request, db)
+    original = await db.cards.find_one({"id": card_id, "public_status": "approved"}, {"_id": 0})
+    if not original:
+        raise HTTPException(status_code=404, detail="Carta pública não encontrada")
+    if original["user_id"] == user["id"]:
+        raise HTTPException(status_code=400, detail="Esta carta já é sua")
+    new_id = str(uuid.uuid4())
+    clone = {**original, "id": new_id, "user_id": user["id"], "public_status": "private",
+             "created_at": datetime.now(timezone.utc).isoformat()}
+    await db.cards.insert_one(clone)
+    clone.pop("_id", None)
+    return clone
+
+
+# ============ Admin moderation ============
+async def require_admin(request: Request):
+    user = await get_current_user(request, db)
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Acesso restrito ao admin")
+    return user
+
+
+@api_router.get("/admin/pending-cards")
+async def list_pending(request: Request):
+    await require_admin(request)
+    cards = await db.cards.find({"public_status": "pending"}, {"_id": 0}).sort("created_at", 1).to_list(500)
+    user_ids = list({c["user_id"] for c in cards})
+    users = await db.users.find({"id": {"$in": user_ids}}, {"_id": 0, "id": 1, "name": 1, "email": 1}).to_list(500)
+    info_by_id = {u["id"]: u for u in users}
+    for c in cards:
+        info = info_by_id.get(c["user_id"], {})
+        c["owner_name"] = info.get("name", "Desconhecido")
+        c["owner_email"] = info.get("email", "")
+    return cards
+
+
+@api_router.post("/admin/cards/{card_id}/approve")
+async def approve_card(card_id: str, request: Request):
+    await require_admin(request)
+    res = await db.cards.update_one({"id": card_id, "public_status": "pending"},
+                                    {"$set": {"public_status": "approved"}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Carta pendente não encontrada")
+    return {"ok": True}
+
+
+@api_router.post("/admin/cards/{card_id}/reject")
+async def reject_card(card_id: str, request: Request):
+    await require_admin(request)
+    res = await db.cards.update_one({"id": card_id, "public_status": "pending"},
+                                    {"$set": {"public_status": "rejected"}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Carta pendente não encontrada")
+    return {"ok": True}
+
 
 
 # ============ Deck CRUD ============
@@ -422,11 +505,14 @@ async def startup():
     if not existing:
         await db.users.insert_one({
             "id": str(uuid.uuid4()),
-            "email": admin_email, "name": "Admin",
+            "email": admin_email, "name": "Admin", "role": "admin",
             "password_hash": hash_password(admin_password),
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
         logger.info("Admin seeded")
+    elif existing.get("role") != "admin":
+        await db.users.update_one({"email": admin_email}, {"$set": {"role": "admin"}})
+        logger.info("Admin role updated")
 
 
 @app.on_event("shutdown")

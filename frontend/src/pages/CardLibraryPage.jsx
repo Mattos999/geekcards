@@ -79,8 +79,16 @@ export default function CardLibraryPage() {
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
           {filtered.map(c => (
-            <div key={c.id} className="animate-fade-in-up">
+            <div key={c.id} className="animate-fade-in-up flex flex-col gap-1.5">
               <GameCard card={c} size="md" onClick={() => navigate(`/cards/${c.id}/edit`)} />
+              {c.public_status && c.public_status !== "private" && (
+                <div className="text-[10px] text-center uppercase tracking-wider font-semibold"
+                  style={{
+                    color: c.public_status === "approved" ? "#34D399" : c.public_status === "pending" ? "#FBBF24" : "#F87171"
+                  }}>
+                  {c.public_status === "approved" ? "● Pública" : c.public_status === "pending" ? "● Em análise" : "● Rejeitada"}
+                </div>
+              )}
             </div>
           ))}
         </div>
