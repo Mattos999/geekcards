@@ -34,7 +34,7 @@ export default function DeckBuilderPage() {
     finally { setLoading(false); }
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
+  useEffect(() => { load(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cardsById = useMemo(() => Object.fromEntries(library.map(c => [c.id, c])), [library]);
 
@@ -80,7 +80,7 @@ export default function DeckBuilderPage() {
     catch {}
   };
 
-  useEffect(() => { if (id && !loading) loadAnalysis(); /* eslint-disable-next-line */ }, [id, loading]);
+  useEffect(() => { if (id && !loading) loadAnalysis(); }, [id, loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Group deck cards by id -> {card, count}
   const deckGrouped = useMemo(() => {
