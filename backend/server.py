@@ -116,11 +116,19 @@ async def register(body: UserCreate, response: Response):
 @api_router.post("/auth/login")
 async def login(body: UserLogin, response: Response):
     email = body.email.lower()
+    logger.info(f"Login attempt for email: {email}")
     user = await db.users.find_one({"email": email})
-    if not user or not verify_password(body.password, user["password_hash"]):
+    if not user:
+        logger.warning(f"User not found: {email}")
+        raise HTTPException(status_code=401, detail="Email ou senha inválidos")
+    password_valid = verify_password(body.password, user["password_hash"])
+    logger.info(f"Password verification for {email}: {password_valid}")
+    if not password_valid:
+        logger.warning(f"Invalid password for {email}")
         raise HTTPException(status_code=401, detail="Email ou senha inválidos")
     token = create_access_token(user["id"], email)
     set_auth_cookie(response, token)
+    logger.info(f"Login successful for {email}")
     return {"id": user["id"], "email": email, "name": user["name"], "role": user.get("role", "user"), "token": token}
 
 
