@@ -16,7 +16,7 @@ export default function CardLibraryPage() {
 
   useEffect(() => {
     (async () => {
-      try { const { data } = await api.get("/cards"); setCards(data); }
+      try { const { data } = await api.get("/cards"); setCards(Array.isArray(data) ? data : []); }
       catch (e) { toast.error(formatApiError(e)); }
     })();
   }, []);
