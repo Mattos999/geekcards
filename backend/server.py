@@ -322,40 +322,63 @@ async def delete_card(card_id: str, request: Request):
 async def community_cards(request: Request, q: str = "", nature: str = "", card_type: str = ""):
     # Require auth but show all approved cards
     await get_current_user(request, db)
+
     query = {"public_status": "approved"}
+
     if nature:
         query["natures"] = nature
+
     if card_type:
         query["card_type"] = card_type
+
     if q:
         query["name"] = {"$regex": q, "$options": "i"}
-    cards = await db.cards.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+
+    cards = await db.cards.find(
+        query,
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+
     # Fetch owner names in one query
     user_ids = list({c["user_id"] for c in cards})
-    users = await db.users.find({"id": {"$in": user_ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(500)
+
+    users = await db.users.find(
+        {"id": {"$in": user_ids}},
+        {"_id": 0, "id": 1, "name": 1}
+    ).to_list(500)
+
     name_by_id = {u["id"]: u["name"] for u in users}
+
     for c in cards:
-        c["owner_name"] = name_by_id.get(c["user_id"], "Desconhecido")
+        c["owner_name"] = name_by_id.get(
+            c["user_id"],
+            "Desconhecido"
+        )
+
         # 🔥 Corrigir abilities antigas
-for card in cards:
-    abilities = card.get("abilities")
+        abilities = c.get("abilities")
 
-    if isinstance(abilities, str):
-        card["abilities"] = [
-            {
-                "name": "Habilidade",
-                "description": abilities
-            }
-        ]
+        if isinstance(abilities, str):
+            c["abilities"] = [
+                {
+                    "name": "Habilidade",
+                    "description": abilities
+                }
+            ]
 
-    elif isinstance(abilities, list) and abilities and isinstance(abilities[0], str):
-        card["abilities"] = [
-            {
-                "name": f"Habilidade {i+1}",
-                "description": ab
-            }
-            for i, ab in enumerate(abilities)
-        ]
+        elif (
+            isinstance(abilities, list)
+            and abilities
+            and isinstance(abilities[0], str)
+        ):
+            c["abilities"] = [
+                {
+                    "name": f"Habilidade {i+1}",
+                    "description": ab
+                }
+                for i, ab in enumerate(abilities)
+            ]
+
     return cards
 
 
