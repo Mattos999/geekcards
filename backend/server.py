@@ -34,6 +34,11 @@ MIME_TYPES = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "gi
 
 
 # ============ Models ============
+class Ability(BaseModel):
+    name: str
+    description: str
+
+
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
@@ -60,7 +65,8 @@ class CardCreate(BaseModel):
     hp: int = 0
     damage: int = 0
     recuo: int = 0
-    abilities: str = ""
+    energy_cost: int = 0
+    abilities: List[Ability] = []
     energy_type: Optional[str] = None  # for Energia cards
     image_url: Optional[str] = None
     description: str = ""
@@ -204,6 +210,8 @@ async def create_card(body: CardCreate, request: Request):
         raise HTTPException(status_code=400, detail="Tipo de carta inválido")
     if body.rarity not in [1, 2, 3]:
         raise HTTPException(status_code=400, detail="Raridade deve ser 1, 2 ou 3")
+    if len(body.abilities) > 3:
+        raise HTTPException(status_code=400, detail="Máximo de 3 habilidades por carta")
 
     card_id = str(uuid.uuid4())
     doc = body.model_dump()
@@ -238,6 +246,8 @@ async def update_card(card_id: str, body: CardCreate, request: Request):
     existing = await db.cards.find_one({"id": card_id, "user_id": user["id"]})
     if not existing:
         raise HTTPException(status_code=404, detail="Carta não encontrada")
+    if len(body.abilities) > 3:
+        raise HTTPException(status_code=400, detail="Máximo de 3 habilidades por carta")
     update = body.model_dump()
     await db.cards.update_one({"id": card_id}, {"$set": update})
     result = await db.cards.find_one({"id": card_id}, {"_id": 0})

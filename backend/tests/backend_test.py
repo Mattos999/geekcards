@@ -69,15 +69,24 @@ class TestCards:
         assert r.status_code == 401
 
     def test_card_crud(self, admin_headers):
-        # CREATE
+        # CREATE with energy_cost and abilities
+        abilities = [
+            {"name": "Fire Breath", "description": "Deals 20 fire damage"},
+            {"name": "Shield", "description": "Blocks 10 damage"},
+        ]
         payload = {"name": "TEST_Dragon", "card_type": "Personagem", "natures": ["Dragão", "Herói"],
-                   "rarity": 2, "is_alpha": False, "hp": 100, "damage": 30, "recuo": 10}
+                   "rarity": 2, "is_alpha": False, "hp": 100, "damage": 30, "recuo": 10,
+                   "energy_cost": 3, "abilities": abilities}
         r = requests.post(f"{BASE_URL}/api/cards", json=payload, headers=admin_headers)
         assert r.status_code == 200, r.text
         card = r.json()
         cid = card["id"]
         assert card["name"] == "TEST_Dragon"
         assert card["hp"] == 100
+        assert card["energy_cost"] == 3
+        assert len(card["abilities"]) == 2
+        assert card["abilities"][0]["name"] == "Fire Breath"
+        assert card["abilities"][1]["description"] == "Blocks 10 damage"
 
         # GET list
         r = requests.get(f"{BASE_URL}/api/cards", headers=admin_headers)
@@ -87,12 +96,19 @@ class TestCards:
         # GET single
         r = requests.get(f"{BASE_URL}/api/cards/{cid}", headers=admin_headers)
         assert r.status_code == 200
+        assert r.json()["energy_cost"] == 3
 
-        # UPDATE
+        # UPDATE — change energy_cost and abilities
         payload["hp"] = 150
+        payload["energy_cost"] = 5
+        payload["abilities"] = [{"name": "Mega Blast", "description": "Deals 50 damage"}]
         r = requests.put(f"{BASE_URL}/api/cards/{cid}", json=payload, headers=admin_headers)
         assert r.status_code == 200
-        assert r.json()["hp"] == 150
+        updated = r.json()
+        assert updated["hp"] == 150
+        assert updated["energy_cost"] == 5
+        assert len(updated["abilities"]) == 1
+        assert updated["abilities"][0]["name"] == "Mega Blast"
 
         # DELETE
         r = requests.delete(f"{BASE_URL}/api/cards/{cid}", headers=admin_headers)
@@ -120,6 +136,53 @@ class TestCards:
         r = requests.post(f"{BASE_URL}/api/cards",
                           json={"name": "X", "card_type": "Personagem", "rarity": 5}, headers=admin_headers)
         assert r.status_code == 400
+        # Too many abilities (> 3)
+        too_many_abilities = [
+            {"name": "A1", "description": "d1"},
+            {"name": "A2", "description": "d2"},
+            {"name": "A3", "description": "d3"},
+            {"name": "A4", "description": "d4"},
+        ]
+        r = requests.post(f"{BASE_URL}/api/cards",
+                          json={"name": "X", "card_type": "Personagem", "abilities": too_many_abilities},
+                          headers=admin_headers)
+        assert r.status_code == 400
+
+    def test_abilities_update_validation(self, admin_headers):
+        # Create a valid card first
+        r = requests.post(f"{BASE_URL}/api/cards",
+                          json={"name": "TEST_AbilVal", "card_type": "Personagem",
+                                "abilities": [{"name": "Slash", "description": "Quick cut"}]},
+                          headers=admin_headers)
+        assert r.status_code == 200, r.text
+        cid = r.json()["id"]
+
+        # Attempt update with 4 abilities — should be rejected
+        too_many = [
+            {"name": "A1", "description": "d1"},
+            {"name": "A2", "description": "d2"},
+            {"name": "A3", "description": "d3"},
+            {"name": "A4", "description": "d4"},
+        ]
+        r = requests.put(f"{BASE_URL}/api/cards/{cid}",
+                         json={"name": "TEST_AbilVal", "card_type": "Personagem", "abilities": too_many},
+                         headers=admin_headers)
+        assert r.status_code == 400
+
+        # Update with exactly 3 abilities — should succeed
+        three = [
+            {"name": "A1", "description": "d1"},
+            {"name": "A2", "description": "d2"},
+            {"name": "A3", "description": "d3"},
+        ]
+        r = requests.put(f"{BASE_URL}/api/cards/{cid}",
+                         json={"name": "TEST_AbilVal", "card_type": "Personagem", "abilities": three},
+                         headers=admin_headers)
+        assert r.status_code == 200
+        assert len(r.json()["abilities"]) == 3
+
+        # Cleanup
+        requests.delete(f"{BASE_URL}/api/cards/{cid}", headers=admin_headers)
 
     def test_user_isolation(self, admin_headers):
         # create second user and verify they can't see admin's cards
