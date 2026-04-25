@@ -208,8 +208,8 @@ async def create_card(body: CardCreate, request: Request):
         raise HTTPException(status_code=400, detail="Máximo de 3 naturezas por carta")
     if body.card_type not in CARD_TYPES:
         raise HTTPException(status_code=400, detail="Tipo de carta inválido")
-    if body.rarity not in [1, 2, 3]:
-        raise HTTPException(status_code=400, detail="Raridade deve ser 1, 2 ou 3")
+    if body.rarity not in [1, 2, 3, 4]:
+        raise HTTPException(status_code=400, detail="Raridade deve ser 1, 2, 3 ou 4")
     if len(body.abilities) > 3:
         raise HTTPException(status_code=400, detail="Máximo de 3 habilidades por carta")
 
@@ -533,7 +533,7 @@ async def analyze_deck(deck_id: str, request: Request):
     # Distribution
     nature_counts = {n: 0 for n in NATURES}
     type_counts = {t: 0 for t in CARD_TYPES}
-    rarity_counts = {"1": 0, "2": 0, "3": 0, "alpha": 0}
+    rarity_counts = {"1": 0, "2": 0, "3": 0, "4":0, "alpha": 0}
     total_hp = 0
     total_damage = 0
     n_chars = 0
