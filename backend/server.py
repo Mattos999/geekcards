@@ -227,16 +227,70 @@ async def create_card(body: CardCreate, request: Request):
 @api_router.get("/cards", response_model=List[Card])
 async def list_cards(request: Request):
     user = await get_current_user(request, db)
-    cards = await db.cards.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+
+    cards = await db.cards.find(
+        {"user_id": user["id"]},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(2000)
+
+    # 🔥 Corrigir abilities antigas
+    for card in cards:
+        abilities = card.get("abilities")
+
+        # Caso seja string antiga
+        if isinstance(abilities, str):
+            card["abilities"] = [
+                {
+                    "name": "Habilidade",
+                    "description": abilities
+                }
+            ]
+
+        # Caso seja lista de strings
+        elif isinstance(abilities, list) and abilities and isinstance(abilities[0], str):
+            card["abilities"] = [
+                {
+                    "name": f"Habilidade {i+1}",
+                    "description": ab
+                }
+                for i, ab in enumerate(abilities)
+            ]
+
     return cards
 
 
 @api_router.get("/cards/{card_id}", response_model=Card)
 async def get_card(card_id: str, request: Request):
     user = await get_current_user(request, db)
-    card = await db.cards.find_one({"id": card_id, "user_id": user["id"]}, {"_id": 0})
+
+    card = await db.cards.find_one(
+        {"id": card_id, "user_id": user["id"]},
+        {"_id": 0}
+    )
+
     if not card:
         raise HTTPException(status_code=404, detail="Carta não encontrada")
+
+    # 🔥 Corrigir abilities antigas
+    abilities = card.get("abilities")
+
+    if isinstance(abilities, str):
+        card["abilities"] = [
+            {
+                "name": "Habilidade",
+                "description": abilities
+            }
+        ]
+
+    elif isinstance(abilities, list) and abilities and isinstance(abilities[0], str):
+        card["abilities"] = [
+            {
+                "name": f"Habilidade {i+1}",
+                "description": ab
+            }
+            for i, ab in enumerate(abilities)
+        ]
+
     return card
 
 
@@ -282,6 +336,26 @@ async def community_cards(request: Request, q: str = "", nature: str = "", card_
     name_by_id = {u["id"]: u["name"] for u in users}
     for c in cards:
         c["owner_name"] = name_by_id.get(c["user_id"], "Desconhecido")
+        # 🔥 Corrigir abilities antigas
+for card in cards:
+    abilities = card.get("abilities")
+
+    if isinstance(abilities, str):
+        card["abilities"] = [
+            {
+                "name": "Habilidade",
+                "description": abilities
+            }
+        ]
+
+    elif isinstance(abilities, list) and abilities and isinstance(abilities[0], str):
+        card["abilities"] = [
+            {
+                "name": f"Habilidade {i+1}",
+                "description": ab
+            }
+            for i, ab in enumerate(abilities)
+        ]
     return cards
 
 
