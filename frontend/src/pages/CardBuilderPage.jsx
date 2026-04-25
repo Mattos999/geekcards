@@ -3,12 +3,12 @@ import { useNavigate, useParams } from "react-router-dom";
 import { api, formatApiError } from "../lib/api";
 import { NATURES, NATURE_COLORS, CARD_TYPES, ENERGY_TYPES, computeEffectiveWeaknesses } from "../lib/natures";
 import { GameCard } from "../components/GameCard";
-import { Upload, Save, Trash2, X } from "lucide-react";
+import { Upload, Save, Trash2, X, Plus, Zap } from "lucide-react";
 import { toast } from "sonner";
 
 const BLANK = {
   name: "", card_type: "Personagem", natures: [], rarity: 1, is_alpha: false,
-  hp: 100, damage: 20, recuo: 1, abilities: "", energy_type: null, image_url: null, description: "",
+  hp: 100, damage: 20, recuo: 1, energy_cost: 0, abilities: [], energy_type: null, image_url: null, description: "",
   public_status: "private"
 };
 
@@ -18,6 +18,7 @@ export default function CardBuilderPage() {
   const [card, setCard] = useState(BLANK);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [abilityDraft, setAbilityDraft] = useState(null); // null = hidden, {} = open form
 
   useEffect(() => {
     if (id) (async () => {
@@ -37,6 +38,20 @@ export default function CardBuilderPage() {
       if (c.natures.length >= 3) { toast.error("Máximo de 3 naturezas"); return c; }
       return { ...c, natures: [...c.natures, n] };
     });
+  };
+
+  const openAbilityForm = () => setAbilityDraft({ name: "", description: "" });
+  const cancelAbilityForm = () => setAbilityDraft(null);
+
+  const commitAbility = () => {
+    if (!abilityDraft.name.trim()) { toast.error("Nome da habilidade é obrigatório"); return; }
+    if ((card.abilities || []).length >= 3) { toast.error("Máximo de 3 habilidades"); return; }
+    setCard(c => ({ ...c, abilities: [...(c.abilities || []), { name: abilityDraft.name.trim(), description: abilityDraft.description.trim() }] }));
+    setAbilityDraft(null);
+  };
+
+  const removeAbility = (idx) => {
+    setCard(c => ({ ...c, abilities: (c.abilities || []).filter((_, i) => i !== idx) }));
   };
 
   const upload = async (e) => {
@@ -175,7 +190,7 @@ export default function CardBuilderPage() {
           {card.card_type === "Personagem" && (
             <section className="glass rounded-xl p-6">
               <h3 className="text-sm uppercase tracking-widest text-slate-400 mb-4">Stats</h3>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs text-slate-400 mb-1.5">HP</label>
                   <input type="number" data-testid="card-hp-input" value={card.hp} onChange={e => set("hp", parseInt(e.target.value)||0)}
@@ -191,16 +206,101 @@ export default function CardBuilderPage() {
                   <input type="number" data-testid="card-recuo-input" value={card.recuo} onChange={e => set("recuo", parseInt(e.target.value)||0)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 font-mono" />
                 </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1.5 flex items-center gap-1">
+                    <Zap size={10} className="text-yellow-400" /> Custo de Energia
+                  </label>
+                  <input type="number" data-testid="card-energy-cost-input" value={card.energy_cost ?? 0} min={0}
+                    onChange={e => set("energy_cost", parseInt(e.target.value)||0)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 font-mono" />
+                </div>
               </div>
             </section>
           )}
 
-          {/* Text */}
+          {/* Abilities */}
           <section className="glass rounded-xl p-6">
-            <h3 className="text-sm uppercase tracking-widest text-slate-400 mb-4">Descrição / Habilidades</h3>
-            <textarea data-testid="card-abilities-input" value={card.abilities} onChange={e => set("abilities", e.target.value)} rows={4}
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 focus:border-indigo-500 focus:outline-none"
-              placeholder="Ex: Ao entrar em jogo, cura 20 HP..." />
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm uppercase tracking-widest text-slate-400">Habilidades</h3>
+                <p className="text-xs text-slate-500 mt-0.5">{(card.abilities || []).length}/3 adicionadas</p>
+              </div>
+              <button
+                type="button"
+                data-testid="add-ability-btn"
+                onClick={openAbilityForm}
+                disabled={(card.abilities || []).length >= 3 || abilityDraft !== null}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/40 text-indigo-200 text-xs disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+              >
+                <Plus size={12} /> Adicionar
+              </button>
+            </div>
+
+            {/* Existing abilities list */}
+            {(card.abilities || []).length > 0 && (
+              <div className="space-y-2 mb-4">
+                {(card.abilities || []).map((ab, idx) => (
+                  <div key={idx} data-testid={`ability-item-${idx}`}
+                    className="flex items-start gap-3 p-3 rounded-lg bg-slate-900/60 border border-slate-800">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-semibold text-indigo-300 truncate">{ab.name}</div>
+                      {ab.description && (
+                        <div className="text-xs text-slate-400 mt-0.5 leading-relaxed">{ab.description}</div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      data-testid={`remove-ability-${idx}`}
+                      onClick={() => removeAbility(idx)}
+                      className="shrink-0 text-slate-500 hover:text-rose-400 transition-colors mt-0.5"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Add ability inline form */}
+            {abilityDraft !== null && (
+              <div data-testid="ability-form" className="p-4 rounded-lg bg-slate-900/80 border border-indigo-500/30 space-y-3">
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1.5">Nome da Habilidade</label>
+                  <input
+                    data-testid="ability-name-input"
+                    value={abilityDraft.name}
+                    onChange={e => setAbilityDraft(d => ({ ...d, name: e.target.value }))}
+                    placeholder="Ex: Cura Rápida"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1.5">Descrição</label>
+                  <textarea
+                    data-testid="ability-description-input"
+                    value={abilityDraft.description}
+                    onChange={e => setAbilityDraft(d => ({ ...d, description: e.target.value }))}
+                    rows={3}
+                    placeholder="Ex: Ao entrar em jogo, cura 20 HP..."
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none resize-none"
+                  />
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <button type="button" onClick={cancelAbilityForm}
+                    className="px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:text-slate-200 border border-slate-700 hover:border-slate-600 transition-all">
+                    Cancelar
+                  </button>
+                  <button type="button" data-testid="confirm-ability-btn" onClick={commitAbility}
+                    className="px-3 py-1.5 rounded-lg text-xs bg-indigo-600 hover:bg-indigo-500 border border-indigo-500 transition-all">
+                    Confirmar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {(card.abilities || []).length === 0 && abilityDraft === null && (
+              <p className="text-xs text-slate-600 italic">Nenhuma habilidade adicionada.</p>
+            )}
           </section>
 
           {/* Image */}

@@ -1,7 +1,7 @@
 import React from "react";
 import { NATURE_COLORS, RARITY_COLORS } from "../lib/natures";
 import { imageUrl } from "../lib/api";
-import { Star, Zap, Heart, Swords, ArrowLeft } from "lucide-react";
+import { Star, Zap, Heart, Swords, ArrowLeft, Sparkles } from "lucide-react";
 
 // A visual representation of a game card
 export const GameCard = ({ card, size = "md", onClick, selected = false, showStats = true }) => {
@@ -70,6 +70,14 @@ export const GameCard = ({ card, size = "md", onClick, selected = false, showSta
         </div>
       )}
 
+      {/* Energy cost badge — top-right, below rarity stars */}
+      {card.card_type === "Personagem" && card.energy_cost > 0 && (
+        <div className="absolute top-7 right-2 flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-bold"
+          style={{ background: "rgba(234,179,8,0.20)", border: "1px solid rgba(234,179,8,0.50)", color: "#FDE047" }}>
+          <Zap size={9} fill="#FDE047" /> {card.energy_cost}
+        </div>
+      )}
+
       {/* Name + type */}
       <div className="absolute bottom-0 left-0 right-0 p-3">
         <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5 font-mono">
@@ -79,10 +87,27 @@ export const GameCard = ({ card, size = "md", onClick, selected = false, showSta
           {card.name}
         </div>
         {showStats && card.card_type === "Personagem" && (
-          <div className="flex gap-2 mt-2 font-mono text-[10px]">
+          <div className="flex gap-2 mt-1 font-mono text-[10px]">
             <span className="flex items-center gap-0.5 text-rose-400"><Heart size={10} />{card.hp}</span>
             <span className="flex items-center gap-0.5 text-amber-400"><Swords size={10} />{card.damage}</span>
             <span className="flex items-center gap-0.5 text-sky-400"><ArrowLeft size={10} />{card.recuo}</span>
+          </div>
+        )}
+
+        {/* Abilities preview */}
+        {showStats && Array.isArray(card.abilities) && card.abilities.length > 0 && (
+          <div className="mt-1.5 space-y-1">
+            {card.abilities.slice(0, 3).map((ab, i) => (
+              <div key={i} className="flex items-start gap-1">
+                <Sparkles size={8} className="shrink-0 mt-0.5 text-indigo-400" />
+                <div className="min-w-0">
+                  <span className="text-[9px] font-semibold text-indigo-300 leading-tight">{ab.name}</span>
+                  {ab.description && (
+                    <p className="text-[8px] text-slate-400 leading-tight truncate">{ab.description}</p>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
