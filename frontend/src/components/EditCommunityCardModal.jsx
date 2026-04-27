@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { api, formatApiError } from "../lib/api";
-import { NATURES, CARD_TYPES } from "../lib/natures";
+import { NATURES, CARD_TYPES, ENERGY_TYPES } from "../lib/natures";
 import { Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 
@@ -17,8 +17,14 @@ export function EditCommunityCardModal({
     card_type: "Personagem",
     natures: [],
     rarity: 1,
+    is_alpha: false,
     hp: 0,
-    description: ""
+    recuo: 0,
+    abilities: [],
+    energy_type: "",
+    image_url: "",
+    description: "",
+    public_status: "approved"
   });
 
   useEffect(() => {
@@ -29,12 +35,22 @@ export function EditCommunityCardModal({
       name: card.name || "",
       card_type: card.card_type || "Personagem",
       natures: card.natures || [],
-      rarity: card.rarity || 1,
+      rarity: card.rarity ?? 1,
+      is_alpha: card.is_alpha || false,
       hp: card.hp || 0,
-      description: card.description || ""
+      recuo: card.recuo || 0,
+      abilities: card.abilities || [],
+      energy_type: card.energy_type || "",
+      image_url: card.image_url || "",
+      description: card.description || "",
+      public_status: card.public_status || "approved"
     });
 
   }, [card]);
+
+  // =====================
+  // NATURES
+  // =====================
 
   const toggleNature = (nature) => {
 
@@ -65,6 +81,55 @@ export function EditCommunityCardModal({
 
   };
 
+  // =====================
+  // ABILITIES
+  // =====================
+
+  const updateAbility = (i, field, value) => {
+
+    const list = [...form.abilities];
+
+    list[i] = {
+      ...list[i],
+      [field]: value
+    };
+
+    setForm({
+      ...form,
+      abilities: list
+    });
+
+  };
+
+  const addAbility = () => {
+
+    if (form.abilities.length >= 3) {
+
+      toast.error("Máximo 3 habilidades");
+
+      return;
+
+    }
+
+    setForm({
+      ...form,
+      abilities: [
+        ...form.abilities,
+        {
+          name: "",
+          description: "",
+          damage: 0,
+          energy_cost: 0
+        }
+      ]
+    });
+
+  };
+
+  // =====================
+  // SAVE
+  // =====================
+
   const save = async () => {
 
     setSaving(true);
@@ -79,7 +144,6 @@ export function EditCommunityCardModal({
       toast.success("Carta atualizada");
 
       onSaved();
-
       onClose();
 
     }
@@ -89,6 +153,8 @@ export function EditCommunityCardModal({
       toast.error(
         formatApiError(e)
       );
+
+      console.error(e);
 
     }
 
@@ -104,13 +170,13 @@ export function EditCommunityCardModal({
 
   return (
 
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 overflow-y-auto">
 
-      <div className="glass rounded-xl p-6 w-full max-w-lg">
+      <div className="glass rounded-xl p-6 w-full max-w-xl">
 
         {/* HEADER */}
 
-        <div className="flex justify-between items-center mb-4">
+        <div className="flex justify-between mb-4">
 
           <h2 className="text-lg font-bold">
 
@@ -118,10 +184,7 @@ export function EditCommunityCardModal({
 
           </h2>
 
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-white"
-          >
+          <button onClick={onClose}>
 
             <X size={18} />
 
@@ -140,7 +203,7 @@ export function EditCommunityCardModal({
             })
           }
           placeholder="Nome"
-          className="w-full mb-3 bg-slate-950 border border-slate-800 rounded px-3 py-2"
+          className="w-full mb-3 input"
         />
 
         {/* TYPE */}
@@ -153,7 +216,7 @@ export function EditCommunityCardModal({
               card_type: e.target.value
             })
           }
-          className="w-full mb-3 bg-slate-950 border border-slate-800 rounded px-3 py-2"
+          className="w-full mb-3 input"
         >
 
           {CARD_TYPES.map(t => (
@@ -166,39 +229,38 @@ export function EditCommunityCardModal({
 
         </select>
 
-        {/* NATURES */}
+        {/* RARITY */}
 
-        <div className="mb-3">
+        <input
+          type="number"
+          value={form.rarity}
+          onChange={e =>
+            setForm({
+              ...form,
+              rarity: Number(e.target.value)
+            })
+          }
+          className="w-full mb-3 input"
+        />
 
-          <div className="text-xs text-slate-400 mb-1">
+        {/* ALPHA */}
 
-            Naturezas
+        <label className="flex gap-2 mb-3">
 
-          </div>
+          <input
+            type="checkbox"
+            checked={form.is_alpha}
+            onChange={e =>
+              setForm({
+                ...form,
+                is_alpha: e.target.checked
+              })
+            }
+          />
 
-          <div className="flex flex-wrap gap-2">
+          Alpha
 
-            {NATURES.map(n => (
-
-              <button
-                key={n}
-                onClick={() => toggleNature(n)}
-                className={`px-2 py-1 text-xs rounded border ${
-                  form.natures.includes(n)
-                    ? "bg-indigo-500 border-indigo-400"
-                    : "border-slate-700"
-                }`}
-              >
-
-                {n}
-
-              </button>
-
-            ))}
-
-          </div>
-
-        </div>
+        </label>
 
         {/* HP */}
 
@@ -212,7 +274,22 @@ export function EditCommunityCardModal({
             })
           }
           placeholder="HP"
-          className="w-full mb-3 bg-slate-950 border border-slate-800 rounded px-3 py-2"
+          className="w-full mb-3 input"
+        />
+
+        {/* RECUO */}
+
+        <input
+          type="number"
+          value={form.recuo}
+          onChange={e =>
+            setForm({
+              ...form,
+              recuo: Number(e.target.value)
+            })
+          }
+          placeholder="Recuo"
+          className="w-full mb-3 input"
         />
 
         {/* DESCRIPTION */}
@@ -226,7 +303,7 @@ export function EditCommunityCardModal({
             })
           }
           placeholder="Descrição"
-          className="w-full mb-4 bg-slate-950 border border-slate-800 rounded px-3 py-2"
+          className="w-full mb-4 input"
         />
 
         {/* SAVE */}
@@ -234,11 +311,11 @@ export function EditCommunityCardModal({
         <button
           onClick={save}
           disabled={saving}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded bg-indigo-600 hover:bg-indigo-700"
+          className="w-full bg-indigo-600 py-2 rounded"
         >
 
           {saving
-            ? <Loader2 className="animate-spin" size={16} />
+            ? <Loader2 className="animate-spin mx-auto" />
             : "Salvar"
           }
 
