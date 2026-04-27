@@ -37,6 +37,8 @@ MIME_TYPES = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "gi
 class Ability(BaseModel):
     name: str
     description: str
+    damage: int = 0
+    energy_cost: int = 0
 
 
 class UserCreate(BaseModel):
@@ -63,9 +65,7 @@ class CardCreate(BaseModel):
     rarity: int = 1  # 1, 2, 3, 4
     is_alpha: bool = False
     hp: int = 0
-    damage: int = 0
     recuo: int = 0
-    energy_cost: int = 0
     abilities: List[Ability] = []
     energy_type: Optional[str] = None  # for Energia cards
     image_url: Optional[str] = None

@@ -8,7 +8,7 @@ import { toast } from "sonner";
 
 const BLANK = {
   name: "", card_type: "Personagem", natures: [], rarity: 1, is_alpha: false,
-  hp: 100, damage: 20, recuo: 1, energy_cost: 0, abilities: [], energy_type: null, image_url: null, description: "",
+  hp: 100, recuo: 1, abilities: [], energy_type: null, image_url: null, description: "",
   public_status: "private"
 };
 
@@ -18,7 +18,7 @@ export default function CardBuilderPage() {
   const [card, setCard] = useState(BLANK);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [abilityDraft, setAbilityDraft] = useState(null); // null = hidden, {} = open form
+  const [abilityDraft, setAbilityDraft] = useState(null);
 
   useEffect(() => {
     if (id) (async () => {
@@ -40,13 +40,18 @@ export default function CardBuilderPage() {
     });
   };
 
-  const openAbilityForm = () => setAbilityDraft({ name: "", description: "" });
+  const openAbilityForm = () => setAbilityDraft({ name: "", description: "", damage: 0, energy_cost: 0 });
   const cancelAbilityForm = () => setAbilityDraft(null);
 
   const commitAbility = () => {
     if (!abilityDraft.name.trim()) { toast.error("Nome da habilidade é obrigatório"); return; }
     if ((card.abilities || []).length >= 3) { toast.error("Máximo de 3 habilidades"); return; }
-    setCard(c => ({ ...c, abilities: [...(c.abilities || []), { name: abilityDraft.name.trim(), description: abilityDraft.description.trim() }] }));
+    setCard(c => ({ ...c, abilities: [...(c.abilities || []), {
+      name: abilityDraft.name.trim(),
+      description: abilityDraft.description.trim(),
+      damage: abilityDraft.damage ?? 0,
+      energy_cost: abilityDraft.energy_cost ?? 0
+    }] }));
     setAbilityDraft(null);
   };
 
@@ -115,8 +120,8 @@ export default function CardBuilderPage() {
       </div>
 
       <div className="grid lg:grid-cols-5 gap-8">
-        {/* Form */}
         <div className="lg:col-span-3 space-y-6">
+
           {/* Basic */}
           <section className="glass rounded-xl p-6">
             <h3 className="text-sm uppercase tracking-widest text-slate-400 mb-4">Informações Básicas</h3>
@@ -197,21 +202,8 @@ export default function CardBuilderPage() {
                     className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 font-mono" />
                 </div>
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1.5">Dano</label>
-                  <input type="number" data-testid="card-damage-input" value={card.damage} onChange={e => set("damage", parseInt(e.target.value)||0)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 font-mono" />
-                </div>
-                <div>
                   <label className="block text-xs text-slate-400 mb-1.5">Recuo</label>
                   <input type="number" data-testid="card-recuo-input" value={card.recuo} onChange={e => set("recuo", parseInt(e.target.value)||0)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 font-mono" />
-                </div>
-                <div>
-                  <label className="block text-xs text-slate-400 mb-1.5 flex items-center gap-1">
-                    <Zap size={10} className="text-yellow-400" /> Custo de Energia
-                  </label>
-                  <input type="number" data-testid="card-energy-cost-input" value={card.energy_cost ?? 0} min={0}
-                    onChange={e => set("energy_cost", parseInt(e.target.value)||0)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 font-mono" />
                 </div>
               </div>
@@ -247,6 +239,10 @@ export default function CardBuilderPage() {
                       {ab.description && (
                         <div className="text-xs text-slate-400 mt-0.5 leading-relaxed">{ab.description}</div>
                       )}
+                      <div className="flex gap-3 mt-1 text-[10px] font-mono">
+                        <span className="text-amber-400">⚔ {ab.damage ?? 0}</span>
+                        <span className="text-yellow-400">⚡ {ab.energy_cost ?? 0}</span>
+                      </div>
                     </div>
                     <button
                       type="button"
@@ -273,6 +269,30 @@ export default function CardBuilderPage() {
                     placeholder="Ex: Cura Rápida"
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
                   />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1.5">Dano</label>
+                    <input
+                      type="number"
+                      value={abilityDraft.damage ?? 0}
+                      onChange={e => setAbilityDraft(d => ({ ...d, damage: parseInt(e.target.value)||0 }))}
+                      min={0}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1.5 flex items-center gap-1">
+                      <Zap size={10} className="text-yellow-400" /> Custo de Energia
+                    </label>
+                    <input
+                      type="number"
+                      value={abilityDraft.energy_cost ?? 0}
+                      onChange={e => setAbilityDraft(d => ({ ...d, energy_cost: parseInt(e.target.value)||0 }))}
+                      min={0}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:outline-none"
+                    />
+                  </div>
                 </div>
                 <div>
                   <label className="block text-xs text-slate-400 mb-1.5">Descrição</label>
