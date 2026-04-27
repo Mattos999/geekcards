@@ -55,9 +55,16 @@ export const GameCard = ({ card, size = "md", onClick, selected = false, showSta
 
       {/* Rarity stars */}
       <div className="absolute top-2 right-2 flex gap-0.5">
-        {Array.from({ length: card.rarity || 1 }).map((_, i) => (
-          <Star key={i} size={12} fill={rarityColor} color={rarityColor} />
-        ))}
+        {card.rarity > 0 &&
+          Array.from({ length: card.rarity }).map((_, i) => (
+            <Star
+              key={i}
+              size={12}
+              fill={rarityColor}
+              color={rarityColor}
+            />
+          ))
+        }
       </div>
 
       {/* Natures */}
@@ -101,7 +108,6 @@ export const GameCard = ({ card, size = "md", onClick, selected = false, showSta
         {showStats && card.card_type === "Personagem" && (
           <div className="flex gap-2 mt-1 font-mono text-[10px]">
             <span className="flex items-center gap-0.5 text-rose-400"><Heart size={10} />{card.hp}</span>
-            <span className="flex items-center gap-0.5 text-amber-400"><ArrowDown size={10} />{card.damage}</span>
             <span className="flex items-center gap-0.5 text-sky-400"><ArrowLeft size={10} />{card.recuo}</span>
           </div>
         )}

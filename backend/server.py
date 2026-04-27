@@ -62,7 +62,7 @@ class CardCreate(BaseModel):
     name: str
     card_type: str  # Personagem, Item, Mestre, Energia
     natures: List[str] = []
-    rarity: int = 1  # 1, 2, 3, 4
+    rarity: int = 0  # 0, 1, 2, 3, 4
     is_alpha: bool = False
     hp: int = 0
     recuo: int = 0
