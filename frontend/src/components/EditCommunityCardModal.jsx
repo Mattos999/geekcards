@@ -1,330 +1,233 @@
 import React, { useEffect, useState } from "react";
 import { api, formatApiError } from "../lib/api";
-import { NATURES, CARD_TYPES, ENERGY_TYPES } from "../lib/natures";
-import { Loader2, X } from "lucide-react";
+import { NATURES, NATURE_COLORS, CARD_TYPES, ENERGY_TYPES } from "../lib/natures";
+import { Loader2, X, Plus, Zap } from "lucide-react";
 import { toast } from "sonner";
 
-export function EditCommunityCardModal({
-  card,
-  onClose,
-  onSaved
-}) {
+const BLANK_ABILITY = { name: "", description: "", damage: 0, energy_cost: 0 };
 
+export function EditCommunityCardModal({ card, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
-
-  const [form, setForm] = useState({
-    name: "",
-    card_type: "Personagem",
-    natures: [],
-    rarity: 1,
-    is_alpha: false,
-    hp: 0,
-    recuo: 0,
-    abilities: [],
-    energy_type: "",
-    image_url: "",
-    description: "",
-    public_status: "approved"
-  });
+  const [form, setForm] = useState(null);
 
   useEffect(() => {
-
     if (!card) return;
-
     setForm({
       name: card.name || "",
       card_type: card.card_type || "Personagem",
       natures: card.natures || [],
       rarity: card.rarity ?? 1,
       is_alpha: card.is_alpha || false,
-      hp: card.hp || 0,
-      recuo: card.recuo || 0,
-      abilities: card.abilities || [],
+      hp: card.hp ?? 0,
+      recuo: card.recuo ?? 0,
+      abilities: (card.abilities || []).map(ab => ({
+        name: ab.name || "",
+        description: ab.description || "",
+        damage: ab.damage ?? 0,
+        energy_cost: ab.energy_cost ?? 0,
+      })),
       energy_type: card.energy_type || "",
       image_url: card.image_url || "",
       description: card.description || "",
-      public_status: card.public_status || "approved"
+      public_status: card.public_status || "approved",
     });
-
   }, [card]);
 
-  // =====================
-  // NATURES
-  // =====================
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const toggleNature = (nature) => {
-
-    let list = [...form.natures];
-
-    if (list.includes(nature)) {
-
-      list = list.filter(n => n !== nature);
-
-    } else {
-
-      if (list.length >= 3) {
-
-        toast.error("Máximo 3 naturezas");
-
-        return;
-
-      }
-
-      list.push(nature);
-
-    }
-
-    setForm({
-      ...form,
-      natures: list
-    });
-
+    const list = form.natures.includes(nature)
+      ? form.natures.filter(n => n !== nature)
+      : form.natures.length >= 3
+        ? (toast.error("Máximo 3 naturezas"), form.natures)
+        : [...form.natures, nature];
+    set("natures", list);
   };
 
-  // =====================
-  // ABILITIES
-  // =====================
-
   const updateAbility = (i, field, value) => {
-
     const list = [...form.abilities];
-
-    list[i] = {
-      ...list[i],
-      [field]: value
-    };
-
-    setForm({
-      ...form,
-      abilities: list
-    });
-
+    list[i] = { ...list[i], [field]: value };
+    set("abilities", list);
   };
 
   const addAbility = () => {
-
-    if (form.abilities.length >= 3) {
-
-      toast.error("Máximo 3 habilidades");
-
-      return;
-
-    }
-
-    setForm({
-      ...form,
-      abilities: [
-        ...form.abilities,
-        {
-          name: "",
-          description: "",
-          damage: 0,
-          energy_cost: 0
-        }
-      ]
-    });
-
+    if (form.abilities.length >= 3) { toast.error("Máximo 3 habilidades"); return; }
+    set("abilities", [...form.abilities, { ...BLANK_ABILITY }]);
   };
 
-  // =====================
-  // SAVE
-  // =====================
+  const removeAbility = (i) => {
+    set("abilities", form.abilities.filter((_, idx) => idx !== i));
+  };
 
   const save = async () => {
-
+    if (!form.name.trim()) { toast.error("Nome é obrigatório"); return; }
     setSaving(true);
-
     try {
-
-      await api.put(
-        `/admin/cards/${card.id}/edit`,
-        form
-      );
-
+      await api.put(`/admin/cards/${card.id}/edit`, form);
       toast.success("Carta atualizada");
-
       onSaved();
       onClose();
-
-    }
-
-    catch (e) {
-
-      toast.error(
-        formatApiError(e)
-      );
-
-      console.error(e);
-
-    }
-
-    finally {
-
+    } catch (e) {
+      toast.error(formatApiError(e));
+    } finally {
       setSaving(false);
-
     }
-
   };
 
-  if (!card) return null;
+  if (!card || !form) return null;
+
+  const inputCls = "w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none";
+  const labelCls = "block text-xs text-slate-400 mb-1";
 
   return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 overflow-y-auto">
+      <div className="glass rounded-xl p-6 w-full max-w-xl my-auto space-y-4">
 
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 overflow-y-auto">
-
-      <div className="glass rounded-xl p-6 w-full max-w-xl">
-
-        {/* HEADER */}
-
-        <div className="flex justify-between mb-4">
-
-          <h2 className="text-lg font-bold">
-
-            Editar Carta
-
-          </h2>
-
-          <button onClick={onClose}>
-
-            <X size={18} />
-
-          </button>
-
+        {/* Header */}
+        <div className="flex justify-between items-center">
+          <h2 className="text-lg font-bold">Editar Carta</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-white"><X size={18} /></button>
         </div>
 
-        {/* NAME */}
+        {/* Nome */}
+        <div>
+          <label className={labelCls}>Nome</label>
+          <input value={form.name} onChange={e => set("name", e.target.value)} className={inputCls} />
+        </div>
 
-        <input
-          value={form.name}
-          onChange={e =>
-            setForm({
-              ...form,
-              name: e.target.value
-            })
-          }
-          placeholder="Nome"
-          className="w-full mb-3 input"
-        />
+        {/* Tipo + Raridade */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className={labelCls}>Tipo</label>
+            <select value={form.card_type} onChange={e => set("card_type", e.target.value)} className={inputCls}>
+              {CARD_TYPES.map(t => <option key={t}>{t}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>Raridade</label>
+            <select value={form.rarity} onChange={e => set("rarity", parseInt(e.target.value))} className={inputCls}>
+              {[1,2,3,4].map(r => <option key={r} value={r}>{r} ★</option>)}
+            </select>
+          </div>
+        </div>
 
-        {/* TYPE */}
-
-        <select
-          value={form.card_type}
-          onChange={e =>
-            setForm({
-              ...form,
-              card_type: e.target.value
-            })
-          }
-          className="w-full mb-3 input"
-        >
-
-          {CARD_TYPES.map(t => (
-
-            <option key={t}>
-              {t}
-            </option>
-
-          ))}
-
-        </select>
-
-        {/* RARITY */}
-
-        <input
-          type="number"
-          value={form.rarity}
-          onChange={e =>
-            setForm({
-              ...form,
-              rarity: Number(e.target.value)
-            })
-          }
-          className="w-full mb-3 input"
-        />
-
-        {/* ALPHA */}
-
-        <label className="flex gap-2 mb-3">
-
-          <input
-            type="checkbox"
-            checked={form.is_alpha}
-            onChange={e =>
-              setForm({
-                ...form,
-                is_alpha: e.target.checked
-              })
-            }
-          />
-
-          Alpha
-
+        {/* Alpha */}
+        <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <input type="checkbox" checked={form.is_alpha} onChange={e => set("is_alpha", e.target.checked)} className="w-4 h-4 rounded" />
+          Versão ALPHA
         </label>
 
-        {/* HP */}
+        {/* Tipo de Energia */}
+        {form.card_type === "Energia" && (
+          <div>
+            <label className={labelCls}>Tipo de Energia</label>
+            <select value={form.energy_type || ""} onChange={e => set("energy_type", e.target.value)} className={inputCls}>
+              <option value="">—</option>
+              {ENERGY_TYPES.map(t => <option key={t}>{t}</option>)}
+            </select>
+          </div>
+        )}
 
-        <input
-          type="number"
-          value={form.hp}
-          onChange={e =>
-            setForm({
-              ...form,
-              hp: Number(e.target.value)
-            })
-          }
-          placeholder="HP"
-          className="w-full mb-3 input"
-        />
+        {/* Naturezas */}
+        {form.card_type === "Personagem" && (
+          <div>
+            <label className={labelCls}>Naturezas (até 3)</label>
+            <div className="flex flex-wrap gap-2 mt-1">
+              {NATURES.map(n => {
+                const active = form.natures.includes(n);
+                return (
+                  <button key={n} type="button" onClick={() => toggleNature(n)}
+                    className="px-3 py-1 rounded-full text-xs font-semibold border-2 transition-all"
+                    style={{
+                      background: active ? NATURE_COLORS[n] : "transparent",
+                      borderColor: NATURE_COLORS[n],
+                      color: active ? "#fff" : NATURE_COLORS[n],
+                    }}>{n}</button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
-        {/* RECUO */}
+        {/* HP + Recuo */}
+        {form.card_type === "Personagem" && (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelCls}>HP</label>
+              <input type="number" value={form.hp} onChange={e => set("hp", parseInt(e.target.value)||0)} className={inputCls + " font-mono"} />
+            </div>
+            <div>
+              <label className={labelCls}>Recuo</label>
+              <input type="number" value={form.recuo} onChange={e => set("recuo", parseInt(e.target.value)||0)} className={inputCls + " font-mono"} />
+            </div>
+          </div>
+        )}
 
-        <input
-          type="number"
-          value={form.recuo}
-          onChange={e =>
-            setForm({
-              ...form,
-              recuo: Number(e.target.value)
-            })
-          }
-          placeholder="Recuo"
-          className="w-full mb-3 input"
-        />
+        {/* Habilidades */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className={labelCls}>Habilidades ({form.abilities.length}/3)</label>
+            <button type="button" onClick={addAbility} disabled={form.abilities.length >= 3}
+              className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/40 text-indigo-200 disabled:opacity-40">
+              <Plus size={11} /> Adicionar
+            </button>
+          </div>
+          <div className="space-y-3">
+            {form.abilities.map((ab, i) => (
+              <div key={i} className="p-3 rounded-lg bg-slate-900/60 border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-indigo-300 font-semibold">Habilidade {i + 1}</span>
+                  <button type="button" onClick={() => removeAbility(i)} className="text-slate-500 hover:text-rose-400"><X size={13} /></button>
+                </div>
+                <input value={ab.name} onChange={e => updateAbility(i, "name", e.target.value)}
+                  placeholder="Nome" className={inputCls} />
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className={labelCls}>Dano</label>
+                    <input type="number" value={ab.damage ?? 0} min={0}
+                      onChange={e => updateAbility(i, "damage", parseInt(e.target.value)||0)}
+                      className={inputCls + " font-mono"} />
+                  </div>
+                  <div>
+                    <label className={labelCls + " flex items-center gap-1"}><Zap size={9} className="text-yellow-400" /> Custo Energia</label>
+                    <input type="number" value={ab.energy_cost ?? 0} min={0}
+                      onChange={e => updateAbility(i, "energy_cost", parseInt(e.target.value)||0)}
+                      className={inputCls + " font-mono"} />
+                  </div>
+                </div>
+                <textarea value={ab.description} onChange={e => updateAbility(i, "description", e.target.value)}
+                  placeholder="Descrição" rows={2}
+                  className={inputCls + " resize-none"} />
+              </div>
+            ))}
+          </div>
+        </div>
 
-        {/* DESCRIPTION */}
+        {/* Status */}
+        <div>
+          <label className={labelCls}>Status</label>
+          <select value={form.public_status} onChange={e => set("public_status", e.target.value)} className={inputCls}>
+            <option value="approved">Aprovada</option>
+            <option value="pending">Pendente</option>
+            <option value="rejected">Rejeitada</option>
+            <option value="private">Privada</option>
+          </select>
+        </div>
 
-        <textarea
-          value={form.description}
-          onChange={e =>
-            setForm({
-              ...form,
-              description: e.target.value
-            })
-          }
-          placeholder="Descrição"
-          className="w-full mb-4 input"
-        />
+        {/* Descrição */}
+        <div>
+          <label className={labelCls}>Descrição</label>
+          <textarea value={form.description} onChange={e => set("description", e.target.value)}
+            rows={2} className={inputCls + " resize-none"} />
+        </div>
 
-        {/* SAVE */}
-
-        <button
-          onClick={save}
-          disabled={saving}
-          className="w-full bg-indigo-600 py-2 rounded"
-        >
-
-          {saving
-            ? <Loader2 className="animate-spin mx-auto" />
-            : "Salvar"
-          }
-
+        {/* Salvar */}
+        <button onClick={save} disabled={saving}
+          className="w-full bg-indigo-600 hover:bg-indigo-500 py-2 rounded-lg flex items-center justify-center disabled:opacity-50">
+          {saving ? <Loader2 size={16} className="animate-spin" /> : "Salvar"}
         </button>
 
       </div>
-
     </div>
-
   );
-
 }

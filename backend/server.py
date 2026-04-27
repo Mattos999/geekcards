@@ -439,6 +439,16 @@ async def reject_card(card_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Carta pendente não encontrada")
     return {"ok": True}
 
+@api_router.put("/admin/cards/{card_id}/edit")
+async def admin_edit_card(card_id: str, body: CardCreate, request: Request):
+    await require_admin(request)
+    existing = await db.cards.find_one({"id": card_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Carta não encontrada")
+    update = body.model_dump()
+    await db.cards.update_one({"id": card_id}, {"$set": update})
+    result = await db.cards.find_one({"id": card_id}, {"_id": 0})
+    return result
 
 @api_router.delete("/admin/cards/{card_id}")
 async def admin_delete_card(
