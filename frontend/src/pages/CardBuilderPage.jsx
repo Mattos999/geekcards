@@ -191,7 +191,7 @@ export default function CardBuilderPage() {
                 <label className="block text-xs text-slate-400 mb-1.5">Raridade</label>
                 <select data-testid="card-rarity-select" value={card.rarity} onChange={e => set("rarity", parseInt(e.target.value))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2">
-                  {[0,1,2,3,4].map(r => <option key={r} value={r}>{r === 0 ? "" : `${r} ★`}</option>)}
+                  {[0,1,2,3,4].map(r => <option key={r} value={r}>{r === 0 ? "Sem raridade" : `${r} ★`}</option>)}
                 </select>
               </div>
               <div className="col-span-2 flex items-center gap-2">

@@ -43,12 +43,14 @@ export const CARD_TYPES = ["Personagem", "Item", "Mestre", "Energia"];
 export const ENERGY_TYPES = ["Superior", "Natural", "Interior", "Universal"];
 
 export const RARITY_COLORS = {
-  0: "#94A3B8",
+  0: "#c1cee0",
   1: "#abffa8",
   2: "#4e91fd",
   3: "#c83cff",
   4: "#ff2f2f",
   alpha: "#ffd900",
+  item: "#3b3b3b",
+  mestre: "linear-gradient(90deg, #ff0000, #ffa500, #ffff00, #008000, #0000ff, #4b0082, #ee82ee)"
 };
 
 export function computeEffectiveWeaknesses(natures) {
