@@ -440,6 +440,25 @@ async def reject_card(card_id: str, request: Request):
     return {"ok": True}
 
 
+@api_router.delete("/admin/cards/{card_id}")
+async def admin_delete_card(
+    card_id: str,
+    request: Request
+):
+    await require_admin(request)
+
+    res = await db.cards.delete_one({
+        "id": card_id
+    })
+
+    if res.deleted_count == 0:
+        raise HTTPException(
+            status_code=404,
+            detail="Carta não encontrada"
+        )
+
+    return {"ok": True}
+
 
 # ============ Deck CRUD ============
 def _validate_deck_rules(card_ids: list[str], cards_by_id: dict) -> list[str]:
