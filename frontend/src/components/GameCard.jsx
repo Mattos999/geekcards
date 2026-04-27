@@ -32,57 +32,86 @@ export const GameCard = ({
   };
 
   // =========================
-  // CORES POR TIPO
-  // =========================
+// CORES POR TIPO
+// =========================
 
-  const rarityColor =
-    card.is_alpha
-      ? RARITY_COLORS.alpha
-      : RARITY_COLORS[card.rarity] || RARITY_COLORS[0];
+// Nature principal
+const primaryNature = card.natures?.[0];
 
-  let borderColor = rarityColor;
-  let backgroundStyle;
+const primaryColor =
+  primaryNature && NATURE_COLORS[primaryNature]
+    ? NATURE_COLORS[primaryNature]
+    : "#334155";
 
-  if (card.card_type === "Personagem") {
+// raridade
+const rarityColor =
+  card.is_alpha
+    ? RARITY_COLORS.alpha
+    : RARITY_COLORS[card.rarity] ?? RARITY_COLORS[0];
 
-    borderColor = rarityColor;
+let borderColor;
+let backgroundStyle;
 
-    const primaryNature = card.natures?.[0];
-    const primaryColor =
-      primaryNature
-        ? NATURE_COLORS[primaryNature]
-        : "#334155";
+// =========================
+// PERSONAGEM → usa Nature
+// =========================
 
-    backgroundStyle =
-      `linear-gradient(145deg, ${primaryColor}22, #0F172A 60%)`;
+if (card.card_type === "Personagem") {
 
-  }
+  borderColor = rarityColor;
 
-  else if (card.card_type === "Item") {
+  backgroundStyle =
+    `linear-gradient(145deg, ${primaryColor}33, #0F172A 60%)`;
 
-    borderColor = RARITY_COLORS.item;
+}
 
-    backgroundStyle =
-      `linear-gradient(145deg, ${RARITY_COLORS.item}33, #0F172A 60%)`;
+// =========================
+// ITEM
+// =========================
 
-  }
+else if (card.card_type === "Item") {
 
-  else if (card.card_type === "Mestre") {
+  borderColor = RARITY_COLORS.item;
 
-    borderColor = "#9333ea";
+  backgroundStyle =
+    `linear-gradient(145deg, ${RARITY_COLORS.item}33, #0F172A 60%)`;
 
-    backgroundStyle = RARITY_COLORS.mestre;
+}
 
-  }
+// =========================
+// MESTRE
+// =========================
 
-  else if (card.card_type === "Energia") {
+else if (card.card_type === "Mestre") {
 
-    borderColor = RARITY_COLORS.energy;
+  borderColor = "#9333ea";
 
-    backgroundStyle =
-      `linear-gradient(145deg, ${RARITY_COLORS.energy}33, #0F172A 60%)`;
+  backgroundStyle = RARITY_COLORS.mestre;
 
-  }
+}
+
+// =========================
+// ENERGIA (CORRIGIDO AQUI)
+// =========================
+
+else if (card.card_type === "Energia") {
+
+  borderColor = RARITY_COLORS.energia;
+
+  backgroundStyle =
+    `linear-gradient(145deg, ${RARITY_COLORS.energia}33, #0F172A 60%)`;
+
+}
+
+// fallback
+else {
+
+  borderColor = rarityColor;
+
+  backgroundStyle =
+    `linear-gradient(145deg, ${rarityColor}33, #0F172A 60%)`;
+
+}
 
   const weaknesses =
     computeEffectiveWeaknesses(card.natures || []);
@@ -150,6 +179,8 @@ export const GameCard = ({
 
       )}
 
+
+
       {/* RARITY STARS */}
       <div className="absolute top-2 right-2 flex gap-0.5">
 
@@ -209,9 +240,9 @@ export const GameCard = ({
               className="px-1.5 py-0.5 rounded-md text-[9px] font-bold border"
 
               style={{
-                background: RARITY_COLORS.weakness_bg,
-                borderColor: RARITY_COLORS.weakness_border,
-                color: RARITY_COLORS.weakness_text
+                background: "#ff0000",
+                borderColor: "#4d0000",
+                color: "#ffffff"
               }}
             >
               ⚠ {w}

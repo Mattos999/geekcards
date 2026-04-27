@@ -50,7 +50,8 @@ export const RARITY_COLORS = {
   4: "#ff2f2f",
   alpha: "#ffd900",
   item: "#3b3b3b",
-  mestre: "linear-gradient(90deg, #ff0000, #ffa500, #ffff00, #008000, #0000ff, #4b0082, #ee82ee)"
+  mestre: "linear-gradient(90deg, #ff0000, #ffa500, #ffff00, #008000, #0000ff, #4b0082, #ee82ee)",
+  energia: "#4400ff",
 };
 
 export function computeEffectiveWeaknesses(natures) {
