@@ -84,7 +84,7 @@ else if (card.card_type === "Item") {
 
 else if (card.card_type === "Mestre") {
 
-  borderColor = "#9333ea";
+  borderColor = RARITY_COLORS.mestre;
 
   backgroundStyle = RARITY_COLORS.mestre;
 
@@ -178,6 +178,11 @@ else {
         </div>
 
       )}
+      {/* FOIL EFFECT — ALPHA */}
+      {card.is_alpha && (
+        <div className="absolute inset-0 pointer-events-none alpha-foil" />
+      )}
+      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent pointer-events-none" />
 
 
 

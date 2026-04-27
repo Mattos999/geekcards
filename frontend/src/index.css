@@ -102,6 +102,37 @@ h1, h2, h3, h4, h5, h6 {
     left: 100%;
 }
 
+/* =========================
+   ALPHA FOIL EFFECT
+========================= */
+
+.alpha-foil {
+  background: linear-gradient(
+    115deg,
+    transparent 0%,
+    rgba(255,255,255,0.15) 30%,
+    rgba(255,255,255,0.4) 50%,
+    rgba(255,255,255,0.15) 70%,
+    transparent 100%
+  );
+
+  mix-blend-mode: screen;
+
+  animation: alphaShine 3s linear infinite;
+}
+
+
+/* brilho passando */
+
+@keyframes alphaShine {
+  0% {
+    transform: translateX(-100%) rotate(15deg);
+  }
+
+  100% {
+    transform: translateX(100%) rotate(15deg);
+  }
+}
 /* Nature badge */
 .nature-badge {
     display: inline-flex;
