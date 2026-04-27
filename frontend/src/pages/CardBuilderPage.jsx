@@ -19,6 +19,7 @@ export default function CardBuilderPage() {
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [abilityDraft, setAbilityDraft] = useState(null);
+  const [editingAbilityIndex, setEditingAbilityIndex] = useState(null);
 
   useEffect(() => {
     if (id) (async () => {
@@ -41,23 +42,71 @@ export default function CardBuilderPage() {
   };
 
   const openAbilityForm = () => setAbilityDraft({ name: "", description: "", damage: 0, energy_cost: 0 });
-  const cancelAbilityForm = () => setAbilityDraft(null);
+  const cancelAbilityForm = () => {
+  setAbilityDraft(null);
+  setEditingAbilityIndex(null);
+};
 
   const commitAbility = () => {
-    if (!abilityDraft.name.trim()) { toast.error("Nome da habilidade é obrigatório"); return; }
-    if ((card.abilities || []).length >= 3) { toast.error("Máximo de 3 habilidades"); return; }
-    setCard(c => ({ ...c, abilities: [...(c.abilities || []), {
-      name: abilityDraft.name.trim(),
-      description: abilityDraft.description.trim(),
-      damage: abilityDraft.damage ?? 0,
-      energy_cost: abilityDraft.energy_cost ?? 0
-    }] }));
-    setAbilityDraft(null);
-  };
+  if (!abilityDraft.name.trim()) { toast.error("Nome da habilidade é obrigatório"); return; }
+
+  if (editingAbilityIndex !== null) {
+    // EDITAR habilidade existente
+    setCard(c => {
+      const updated = [...(c.abilities || [])];
+
+      updated[editingAbilityIndex] = {
+        name: abilityDraft.name.trim(),
+        description: abilityDraft.description.trim(),
+        damage: abilityDraft.damage ?? 0,
+        energy_cost: abilityDraft.energy_cost ?? 0
+      };
+
+      return { ...c, abilities: updated };
+    });
+
+    setEditingAbilityIndex(null);
+
+  } else {
+    // ADICIONAR nova habilidade
+    if ((card.abilities || []).length >= 3) {
+      toast.error("Máximo de 3 habilidades");
+      return;
+    }
+
+    setCard(c => ({
+      ...c,
+      abilities: [
+        ...(c.abilities || []),
+        {
+          name: abilityDraft.name.trim(),
+          description: abilityDraft.description.trim(),
+          damage: abilityDraft.damage ?? 0,
+          energy_cost: abilityDraft.energy_cost ?? 0
+        }
+      ]
+    }));
+  }
+
+  setAbilityDraft(null);
+};
 
   const removeAbility = (idx) => {
     setCard(c => ({ ...c, abilities: (c.abilities || []).filter((_, i) => i !== idx) }));
   };
+
+  const editAbility = (idx) => {
+  const ab = card.abilities[idx];
+
+  setAbilityDraft({
+    name: ab.name,
+    description: ab.description,
+    damage: ab.damage ?? 0,
+    energy_cost: ab.energy_cost ?? 0
+  });
+
+  setEditingAbilityIndex(idx);
+};
 
   const upload = async (e) => {
     const file = e.target.files?.[0];
@@ -246,6 +295,13 @@ export default function CardBuilderPage() {
                     </div>
                     <button
                       type="button"
+                      onClick={() => editAbility(idx)}
+                      className="shrink-0 text-slate-500 hover:text-indigo-400 transition-colors mt-0.5"
+                    >
+                      ✏️
+                    </button>
+                    <button
+                      type="button"
                       data-testid={`remove-ability-${idx}`}
                       onClick={() => removeAbility(idx)}
                       className="shrink-0 text-slate-500 hover:text-rose-400 transition-colors mt-0.5"
@@ -368,7 +424,7 @@ export default function CardBuilderPage() {
             ) : (
               <div>
                 <p className="text-xs text-slate-500 mb-3">Envie para a biblioteca comunitária. Um admin irá revisar e aprovar.</p>
-                <button type="button" onClick={() => set("public_status", "pending")} data-testid="card-submit-public-btn"
+                <button type="button" onClick={() => set("public_status", "pending")} data-testid   ="card-submit-public-btn"
                   className="text-sm px-4 py-2 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/40 text-indigo-200">
                   Solicitar publicação
                 </button>
