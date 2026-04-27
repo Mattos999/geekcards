@@ -79,9 +79,9 @@ export const GameCard = ({ card, size = "md", onClick, selected = false, showSta
               key={i}
               className="px-1.5 py-0.5 rounded-md text-[9px] font-bold border"
               style={{
-                background: `${NATURE_COLORS[w]}22`,
-                borderColor: NATURE_COLORS[w],
-                color: NATURE_COLORS[w]
+              background: "rgba(244,63,94,0.15)", // vermelho suave
+              borderColor: "#da1111",
+              color: "#fda4af"
               }}
             >
               ⚠ {w}
