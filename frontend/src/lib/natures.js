@@ -49,8 +49,8 @@ export const RARITY_COLORS = {
   3: "#c83cff",
   4: "#ff2f2f",
   alpha: "#ffd900",
-  item: "#3b3b3b",
-  mestre: "linear-gradient(90deg, #ff0000, #ffa500, #ffff00, #008000, #0000ff, #4b0082, #ee82ee)",
+  item: "#b3b3b3",
+  mestre: "#9834c7",
   energia: "#4400ff",
 };
 
