@@ -1,7 +1,11 @@
 import axios from "axios";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-export const API = `${BACKEND_URL}/api`;
+const rawBackendUrl = (process.env.REACT_APP_BACKEND_URL || "").replace(/\/$/, "");
+const isBrowser = typeof window !== "undefined";
+const isLocalPage = isBrowser && ["localhost", "127.0.0.1"].includes(window.location.hostname);
+const isLocalBackend = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(rawBackendUrl);
+const BACKEND_URL = rawBackendUrl && (!isLocalBackend || isLocalPage) ? rawBackendUrl : "";
+export const API = BACKEND_URL ? `${BACKEND_URL}/api` : "/api";
 
 export const api = axios.create({
   baseURL: API,
@@ -26,6 +30,6 @@ export function formatApiError(err) {
 export function imageUrl(path) {
   if (!path) return null;
   if (path.startsWith("http")) return path;
-  if (path.startsWith("/api")) return `${BACKEND_URL}${path}`;
+  if (path.startsWith("/api")) return BACKEND_URL ? `${BACKEND_URL}${path}` : path;
   return `${API}/files/${path}`;
 }
