@@ -28,17 +28,35 @@ client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
 app = FastAPI(title="Geek Cards Deck Manager")
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 api_router = APIRouter(prefix="/api")
 
 MIME_TYPES = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "gif": "image/gif", "webp": "image/webp"}
 
 
 # ============ Models ============
+class EnergyCost(BaseModel):
+    energy_type: str
+    amount: int
+
+
 class Ability(BaseModel):
     name: str
     description: str
     damage: int = 0
     energy_cost: int = 0
+    energy_costs: List[EnergyCost] = []
 
 
 class UserCreate(BaseModel):
@@ -56,6 +74,17 @@ class UserOut(BaseModel):
     id: str
     email: str
     name: str
+    role: str = "user"
+
+
+class ProfileUpdate(BaseModel):
+    name: str
+    current_password: Optional[str] = None
+    new_password: Optional[str] = None
+
+
+class AdminRoleUpdate(BaseModel):
+    role: str
 
 
 class CardCreate(BaseModel):
@@ -71,6 +100,8 @@ class CardCreate(BaseModel):
     image_url: Optional[str] = None
     description: str = ""
     public_status: str = "private"  # private | pending | approved | rejected
+    is_evolution: bool = False
+    evolution_number: Optional[str] = None
 
 
 class Card(CardCreate):
@@ -90,6 +121,29 @@ class Deck(DeckCreate):
     user_id: str
     created_at: str
     updated_at: str
+
+
+def normalize_card_payload(body: CardCreate) -> dict:
+    payload = body.model_dump()
+
+    if not payload.get("is_evolution"):
+        payload["evolution_number"] = None
+    elif not isinstance(payload.get("evolution_number"), str) or not payload.get("evolution_number"):
+        payload["evolution_number"] = "I"
+
+    for ability in payload.get("abilities", []):
+        energy_costs = ability.get("energy_costs") or []
+
+        for cost in energy_costs:
+            if cost.get("energy_type") not in ENERGY_TYPES:
+                raise HTTPException(status_code=400, detail=f"Tipo de energia invalido: {cost.get('energy_type')}")
+            if cost.get("amount", 0) < 1:
+                raise HTTPException(status_code=400, detail="Quantidade de energia deve ser maior que zero")
+
+        if energy_costs:
+            ability["energy_cost"] = sum(cost["amount"] for cost in energy_costs)
+
+    return payload
 
 
 # ============ Auth endpoints ============
@@ -140,6 +194,36 @@ async def logout(response: Response):
 async def me(request: Request):
     user = await get_current_user(request, db)
     return {"id": user["id"], "email": user["email"], "name": user["name"], "role": user.get("role", "user")}
+
+
+@api_router.put("/auth/me")
+async def update_profile(body: ProfileUpdate, request: Request):
+    user = await get_current_user(request, db)
+    name = body.name.strip()
+
+    if not name:
+        raise HTTPException(status_code=400, detail="Nome e obrigatorio")
+
+    update = {"name": name}
+
+    if body.new_password:
+        if len(body.new_password) < 6:
+            raise HTTPException(status_code=400, detail="A nova senha deve ter pelo menos 6 caracteres")
+
+        stored_user = await db.users.find_one({"id": user["id"]})
+        if not stored_user or not body.current_password or not verify_password(body.current_password, stored_user["password_hash"]):
+            raise HTTPException(status_code=400, detail="Senha atual invalida")
+
+        update["password_hash"] = hash_password(body.new_password)
+
+    await db.users.update_one({"id": user["id"]}, {"$set": update})
+    result = await db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 0})
+    return {
+        "id": result["id"],
+        "email": result["email"],
+        "name": result["name"],
+        "role": result.get("role", "user"),
+    }
 
 
 # ============ Natures endpoints ============
@@ -214,7 +298,7 @@ async def create_card(body: CardCreate, request: Request):
         raise HTTPException(status_code=400, detail="Máximo de 3 habilidades por carta")
 
     card_id = str(uuid.uuid4())
-    doc = body.model_dump()
+    doc = normalize_card_payload(body)
     doc.update({
         "id": card_id, "user_id": user["id"],
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -302,7 +386,7 @@ async def update_card(card_id: str, body: CardCreate, request: Request):
         raise HTTPException(status_code=404, detail="Carta não encontrada")
     if len(body.abilities) > 3:
         raise HTTPException(status_code=400, detail="Máximo de 3 habilidades por carta")
-    update = body.model_dump()
+    update = normalize_card_payload(body)
     await db.cards.update_one({"id": card_id}, {"$set": update})
     result = await db.cards.find_one({"id": card_id}, {"_id": 0})
     return result
@@ -321,9 +405,12 @@ async def delete_card(card_id: str, request: Request):
 @api_router.get("/community/cards")
 async def community_cards(request: Request, q: str = "", nature: str = "", card_type: str = ""):
     # Require auth but show all approved cards
-    await get_current_user(request, db)
+    user = await get_current_user(request, db)
 
-    query = {"public_status": "approved"}
+    query = {}
+
+    if user.get("role") != "admin":
+        query["public_status"] = "approved"
 
     if nature:
         query["natures"] = nature
@@ -420,6 +507,52 @@ async def list_pending(request: Request):
     return cards
 
 
+@api_router.get("/admin/users", response_model=List[UserOut])
+async def list_users(request: Request):
+    await require_admin(request)
+    users = await db.users.find(
+        {},
+        {"_id": 0, "password_hash": 0}
+    ).sort("created_at", -1).to_list(1000)
+
+    return [
+        {
+            "id": user["id"],
+            "email": user["email"],
+            "name": user.get("name", ""),
+            "role": user.get("role", "user"),
+        }
+        for user in users
+    ]
+
+
+@api_router.put("/admin/users/{user_id}/role")
+async def update_user_role(user_id: str, body: AdminRoleUpdate, request: Request):
+    admin = await require_admin(request)
+
+    if user_id == admin["id"]:
+        raise HTTPException(status_code=400, detail="Voce nao pode alterar sua propria permissao")
+
+    if body.role not in ["user", "admin"]:
+        raise HTTPException(status_code=400, detail="Role invalida")
+
+    result = await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"role": body.role}}
+    )
+
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Usuario nao encontrado")
+
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    return {
+        "id": user["id"],
+        "email": user["email"],
+        "name": user.get("name", ""),
+        "role": user.get("role", "user"),
+    }
+
+
 @api_router.post("/admin/cards/{card_id}/approve")
 async def approve_card(card_id: str, request: Request):
     await require_admin(request)
@@ -445,7 +578,7 @@ async def admin_edit_card(card_id: str, body: CardCreate, request: Request):
     existing = await db.cards.find_one({"id": card_id})
     if not existing:
         raise HTTPException(status_code=404, detail="Carta não encontrada")
-    update = body.model_dump()
+    update = normalize_card_payload(body)
     await db.cards.update_one({"id": card_id}, {"$set": update})
     result = await db.cards.find_one({"id": card_id}, {"_id": 0})
     return result
