@@ -6,12 +6,19 @@ import {
 } from "../lib/natures";
 
 import { imageUrl } from "../lib/api";
+import { EnergyCostSymbols } from "./EnergyCostSymbols";
 
 import {
   Star,
   Heart,
   ArrowLeft,
-  Sparkles
+  Sparkles,
+  ChevronsUp,
+  TrendingUp,
+  CircleStop,
+  Triangle,
+  Sparkle,
+  Pentagon,
 } from "lucide-react";
 
 // A visual representation of a game card
@@ -259,6 +266,7 @@ else {
 
       )}
 
+
       {/* NAME + TYPE */}
       <div className="absolute bottom-0 left-0 right-0 p-3">
 
@@ -271,11 +279,18 @@ else {
         </div>
 
         <div
-          className="text-sm font-bold text-white leading-tight truncate"
+          className="flex items-center gap-2 text-sm font-bold text-white leading-tight"
           style={{ fontFamily: "Outfit" }}
         >
-          {card.name}
-        </div>
+          <span className="truncate min-w-0">{card.name}</span>
+
+          {card.is_evolution && card.evolution_number && (
+            <span className="flex items-center gap-1 text-cyan-400 text-xs font-semibold shrink-0">
+              <ChevronsUp size={18} />
+              {card.evolution_number}
+            </span>
+          )}
+      </div>
 
         {/* STATS */}
         {showStats && card.card_type === "Personagem" && (
@@ -284,7 +299,7 @@ else {
 
             <span className="flex items-center gap-0.5 text-rose-400">
 
-              <Heart size={10} />
+              <Heart size={12} />
 
               {card.hp}
 
@@ -292,7 +307,7 @@ else {
 
             <span className="flex items-center gap-0.5 text-sky-400">
 
-              <ArrowLeft size={10} />
+              <ArrowLeft size={12} />
 
               {card.recuo}
 
@@ -316,10 +331,6 @@ else {
                 className="flex items-start gap-1"
               >
 
-                <Sparkles
-                  size={8}
-                  className="shrink-0 mt-0.5 text-indigo-400"
-                />
 
                 <div className="min-w-0">
 
@@ -333,35 +344,19 @@ else {
 
                     {ab.damage > 0 && (
 
-                      <span className="text-[8px] font-mono text-rose-400">
+                      <span className="text-[12px] font-mono text-rose-400">
 
-                        ⚔ {ab.damage}
-
-                      </span>
-
-                    )}
-
-                    {ab.energy_cost > 0 && (
-
-                      <span className="text-[8px] font-mono text-yellow-400">
-
-                        ⚡ {ab.energy_cost}
+                        ⚔{ab.damage}
 
                       </span>
 
                     )}
+
+                    <EnergyCostSymbols ability={ab} size="s" />
 
                   </div>
 
-                  {ab.description && (
-
-                    <p className="text-[8px] text-slate-400 leading-tight truncate">
-
-                      {ab.description}
-
-                    </p>
-
-                  )}
+                  
 
                 </div>
 

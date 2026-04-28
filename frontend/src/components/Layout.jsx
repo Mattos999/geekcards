@@ -1,12 +1,14 @@
-import React from "react";
+import React, { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Library, Layers, LogOut, Plus, Sparkles, Shield, Users, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, Library, Layers, LogOut, Plus, Sparkles, Shield, Users, ShieldCheck, UserCog } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import { Toaster } from "./ui/sonner";
+import { ProfileModal } from "./ProfileModal";
 
 export const Layout = ({ children }) => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [profileOpen, setProfileOpen] = useState(false);
 
   const links = [
     { to: "/", icon: LayoutDashboard, label: "Dashboard", testid: "nav-dashboard" },
@@ -62,7 +64,14 @@ export const Layout = ({ children }) => {
 
         <div className="p-4 border-t border-slate-800">
           <div className="text-xs text-slate-500 mb-2">Conectado como</div>
-          <div className="text-sm font-medium text-white truncate mb-3">{user?.name}</div>
+          <button
+            type="button"
+            onClick={() => setProfileOpen(true)}
+            className="mb-3 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm font-medium text-white transition-colors hover:bg-slate-800/70"
+          >
+            <UserCog size={14} className="shrink-0 text-indigo-300" />
+            <span className="truncate">{user?.name}</span>
+          </button>
           <button
             onClick={async () => { await logout(); navigate("/login"); }}
             data-testid="logout-btn"
@@ -79,6 +88,10 @@ export const Layout = ({ children }) => {
       </main>
 
       <Toaster position="top-right" theme="dark" />
+
+      {profileOpen && (
+        <ProfileModal onClose={() => setProfileOpen(false)} />
+      )}
     </div>
   );
 };

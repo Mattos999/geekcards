@@ -3,11 +3,13 @@ import { useNavigate, useParams } from "react-router-dom";
 import { api, formatApiError } from "../lib/api";
 import { NATURES, NATURE_COLORS, CARD_TYPES, ENERGY_TYPES, computeEffectiveWeaknesses } from "../lib/natures";
 import { GameCard } from "../components/GameCard";
+import { EnergyCostSymbols } from "../components/EnergyCostSymbols";
+import { normalizeAbilityEnergyCosts, sanitizeEnergyCosts, totalEnergyCost } from "../lib/energyCosts";
 import { Upload, Save, Trash2, X, Plus, Zap } from "lucide-react";
 import { toast } from "sonner";
 
 const BLANK = {
-  name: "", card_type: "Personagem", natures: [], rarity: 0, is_alpha: false,
+  name: "", card_type: "Personagem", natures: [], rarity: 0, is_alpha: false, is_evolution: false, evolution_number: "",
   hp: 100, recuo: 1, abilities: [], energy_type: null, image_url: null, description: "",
   public_status: "private"
 };
@@ -41,14 +43,52 @@ export default function CardBuilderPage() {
     });
   };
 
-  const openAbilityForm = () => setAbilityDraft({ name: "", description: "", damage: 0, energy_cost: 0 });
+  const buildAbilityDraft = (ability = {}) => ({
+    name: ability.name || "",
+    description: ability.description || "",
+    damage: ability.damage ?? 0,
+    energy_costs: normalizeAbilityEnergyCosts(ability),
+    energy_type_to_add: ENERGY_TYPES[0],
+    energy_amount_to_add: 1
+  });
+
+  const openAbilityForm = () => setAbilityDraft(buildAbilityDraft());
   const cancelAbilityForm = () => {
   setAbilityDraft(null);
   setEditingAbilityIndex(null);
 };
 
+  const addDraftEnergyCost = () => {
+    setAbilityDraft(d => {
+      const amount = parseInt(d.energy_amount_to_add, 10) || 0;
+      if (amount < 1) {
+        toast.error("Quantidade de energia deve ser maior que zero");
+        return d;
+      }
+
+      return {
+        ...d,
+        energy_costs: [
+          ...sanitizeEnergyCosts(d.energy_costs),
+          { energy_type: d.energy_type_to_add, amount }
+        ],
+        energy_amount_to_add: 1
+      };
+    });
+  };
+
+  const removeDraftEnergyCost = (idx) => {
+    setAbilityDraft(d => ({
+      ...d,
+      energy_costs: sanitizeEnergyCosts(d.energy_costs).filter((_, i) => i !== idx)
+    }));
+  };
+
   const commitAbility = () => {
   if (!abilityDraft.name.trim()) { toast.error("Nome da habilidade é obrigatório"); return; }
+
+  const energyCosts = sanitizeEnergyCosts(abilityDraft.energy_costs);
+  const legacyEnergyCost = totalEnergyCost(energyCosts);
 
   if (editingAbilityIndex !== null) {
     // EDITAR habilidade existente
@@ -59,7 +99,8 @@ export default function CardBuilderPage() {
         name: abilityDraft.name.trim(),
         description: abilityDraft.description.trim(),
         damage: abilityDraft.damage ?? 0,
-        energy_cost: abilityDraft.energy_cost ?? 0
+        energy_cost: legacyEnergyCost,
+        energy_costs: energyCosts
       };
 
       return { ...c, abilities: updated };
@@ -82,7 +123,8 @@ export default function CardBuilderPage() {
           name: abilityDraft.name.trim(),
           description: abilityDraft.description.trim(),
           damage: abilityDraft.damage ?? 0,
-          energy_cost: abilityDraft.energy_cost ?? 0
+          energy_cost: legacyEnergyCost,
+          energy_costs: energyCosts
         }
       ]
     }));
@@ -98,12 +140,7 @@ export default function CardBuilderPage() {
   const editAbility = (idx) => {
   const ab = card.abilities[idx];
 
-  setAbilityDraft({
-    name: ab.name,
-    description: ab.description,
-    damage: ab.damage ?? 0,
-    energy_cost: ab.energy_cost ?? 0
-  });
+  setAbilityDraft(buildAbilityDraft(ab));
 
   setEditingAbilityIndex(idx);
 };
@@ -194,11 +231,55 @@ export default function CardBuilderPage() {
                   {[0,1,2,3,4].map(r => <option key={r} value={r}>{r === 0 ? "Sem raridade" : `${r} ★`}</option>)}
                 </select>
               </div>
-              <div className="col-span-2 flex items-center gap-2">
-                <input type="checkbox" id="alpha" data-testid="card-alpha-checkbox" checked={card.is_alpha} onChange={e => set("is_alpha", e.target.checked)}
-                  className="w-4 h-4 rounded" />
-                <label htmlFor="alpha" className="text-sm">Versão ALPHA (mais poderosa, vale 2 vidas)</label>
-              </div>
+
+              <div className="grid grid-cols-2 gap-4 col-span-2">
+
+  {/* Evolução + select */}
+  <div>
+    <label className="flex items-center gap-2 mb-3">
+      <input
+        type="checkbox"
+        id="evolution"
+        checked={card.is_evolution}
+        onChange={e => set("is_evolution", e.target.checked)}
+        className="w-4 h-4 rounded"
+      />
+      <span className="text-sm">Evolução</span>
+    </label>
+
+    {card.is_evolution && (
+      <div>
+        <label className="block text-xs text-slate-400 mb-1.5">
+          Nível de Evolução
+        </label>
+        <select
+          value={card.evolution_number}
+          onChange={e => set("evolution_number", e.target.value)}
+          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2"
+        >
+          {["", "I", "II", "III", "IV"].map(r => (
+            <option key={r} value={r}>{r}</option>
+          ))}
+        </select>
+      </div>
+    )}
+  </div>
+
+  {/* Alpha */}
+  <div>
+    <label className="flex items-center gap-2 mb-3">
+      <input
+        type="checkbox"
+        id="alpha"
+        checked={card.is_alpha}
+        onChange={e => set("is_alpha", e.target.checked)}
+        className="w-4 h-4 rounded"
+      />
+      <span className="text-sm">Versão ALPHA</span>
+    </label>
+  </div>
+
+</div>
               {card.card_type === "Energia" && (
                 <div className="col-span-2">
                   <label className="block text-xs text-slate-400 mb-1.5">Tipo de Energia</label>
@@ -290,7 +371,7 @@ export default function CardBuilderPage() {
                       )}
                       <div className="flex gap-3 mt-1 text-[10px] font-mono">
                         <span className="text-amber-400">⚔ {ab.damage ?? 0}</span>
-                        <span className="text-yellow-400">⚡ {ab.energy_cost ?? 0}</span>
+                        <EnergyCostSymbols ability={ab} size="xs" />
                       </div>
                     </div>
                     <button
@@ -326,7 +407,7 @@ export default function CardBuilderPage() {
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
                     <label className="block text-xs text-slate-400 mb-1.5">Dano</label>
                     <input
@@ -337,18 +418,54 @@ export default function CardBuilderPage() {
                       className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:outline-none"
                     />
                   </div>
-                  <div>
-                    <label className="block text-xs text-slate-400 mb-1.5 flex items-center gap-1">
+                </div>
+                <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <label className="text-xs text-slate-400 flex items-center gap-1">
                       <Zap size={10} className="text-yellow-400" /> Custo de Energia
                     </label>
+                    <EnergyCostSymbols costs={abilityDraft.energy_costs} showEmpty className="text-slate-400" />
+                  </div>
+
+                  <div className="grid grid-cols-[1fr_5rem_auto] gap-2">
+                    <select
+                      value={abilityDraft.energy_type_to_add}
+                      onChange={e => setAbilityDraft(d => ({ ...d, energy_type_to_add: e.target.value }))}
+                      className="min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+                    >
+                      {ENERGY_TYPES.map(type => <option key={type}>{type}</option>)}
+                    </select>
                     <input
                       type="number"
-                      value={abilityDraft.energy_cost ?? 0}
-                      onChange={e => setAbilityDraft(d => ({ ...d, energy_cost: parseInt(e.target.value)||0 }))}
-                      min={0}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:outline-none"
+                      value={abilityDraft.energy_amount_to_add}
+                      onChange={e => setAbilityDraft(d => ({ ...d, energy_amount_to_add: parseInt(e.target.value)||0 }))}
+                      min={1}
+                      className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:outline-none"
                     />
+                    <button
+                      type="button"
+                      onClick={addDraftEnergyCost}
+                      className="inline-flex items-center justify-center rounded-lg border border-indigo-500/40 bg-indigo-500/20 px-3 text-xs text-indigo-200 hover:bg-indigo-500/30"
+                    >
+                      <Plus size={13} />
+                    </button>
                   </div>
+
+                  {sanitizeEnergyCosts(abilityDraft.energy_costs).length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {sanitizeEnergyCosts(abilityDraft.energy_costs).map((cost, idx) => (
+                        <button
+                          key={`${cost.energy_type}-${idx}`}
+                          type="button"
+                          onClick={() => removeDraftEnergyCost(idx)}
+                          className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-300 hover:border-rose-500/60 hover:text-rose-200"
+                        >
+                          <EnergyCostSymbols costs={[cost]} />
+                          <X size={11} />
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs text-slate-400 mb-1.5">Descrição</label>

@@ -3,6 +3,7 @@ import { api, formatApiError } from "../lib/api";
 import { NATURES, CARD_TYPES } from "../lib/natures";
 import { GameCard } from "../components/GameCard";
 import { EditCommunityCardModal } from "../components/EditCommunityCardModal";
+import { CommunityCardDetailModal } from "../components/CommunityCardDetailModal";
 
 import {
   Search,
@@ -21,12 +22,28 @@ export default function CommunityPage() {
   const [q, setQ] = useState("");
   const [natureFilter, setNatureFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
+  const [alphaOnly, setAlphaOnly] = useState(false);
 
   const [cloning, setCloning] = useState(null);
 
   const [user, setUser] = useState(null);
 
   const [editingCard, setEditingCard] = useState(null);
+  const [selectedCard, setSelectedCard] = useState(null);
+
+  const statusLabels = {
+    approved: "Aprovada",
+    pending: "Pendente",
+    rejected: "Rejeitada",
+    private: "Privada"
+  };
+
+  const statusClasses = {
+    approved: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
+    pending: "border-amber-500/30 bg-amber-500/10 text-amber-300",
+    rejected: "border-rose-500/30 bg-rose-500/10 text-rose-300",
+    private: "border-slate-600 bg-slate-800/60 text-slate-300"
+  };
 
   // =========================
   // LOAD USER
@@ -119,6 +136,12 @@ export default function CommunityPage() {
       )
         return false;
 
+      if (
+        alphaOnly &&
+        !c.is_alpha
+      )
+        return false;
+
       return true;
 
     }),
@@ -126,7 +149,8 @@ export default function CommunityPage() {
       cards,
       q,
       natureFilter,
-      typeFilter
+      typeFilter,
+      alphaOnly
     ]
   );
 
@@ -324,6 +348,19 @@ export default function CommunityPage() {
 
         </select>
 
+        {/* ALPHA */}
+
+        <label className="flex items-center gap-2 text-sm cursor-pointer px-2 py-2">
+          <input
+            type="checkbox"
+            checked={alphaOnly}
+            onChange={e =>
+              setAlphaOnly(e.target.checked)
+            }
+          />
+          ALPHA
+        </label>
+
       </div>
 
       {/* LOADING */}
@@ -363,59 +400,75 @@ export default function CommunityPage() {
 
         : (
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
 
             {filtered.map(c => (
 
               <div
                 key={c.id}
-                className="animate-fade-in-up flex flex-col gap-2"
+                className="animate-fade-in-up flex flex-col items-center gap-2"
               >
 
                 <GameCard
                   card={c}
                   size="md"
                   showStats
+                  selected={selectedCard?.id === c.id}
+                  onClick={() => setSelectedCard(c)}
                 />
 
-                <div className="text-[10px] text-slate-500 truncate px-1">
+                <div className="w-48 text-center text-[10px] text-slate-500 truncate px-1">
 
                   por {c.owner_name}
 
                 </div>
 
+                {user?.role === "admin" && (
+
+                  <div className={`w-48 text-[10px] text-center uppercase tracking-wider font-semibold rounded-md border px-2 py-1 ${statusClasses[c.public_status] || statusClasses.private}`}>
+
+                    {statusLabels[c.public_status] || c.public_status || "Privada"}
+
+                  </div>
+
+                )}
+
                 {/* CLONE */}
 
-                <button
-                  onClick={() => clone(c)}
-                  disabled={cloning === c.id}
-                  className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-indigo-200 text-xs transition-colors disabled:opacity-50"
-                >
+                {c.public_status === "approved" && (
 
-                  {cloning === c.id
+                  <button
+                    onClick={() => clone(c)}
+                    disabled={cloning === c.id}
+                    className="w-48 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-indigo-200 text-xs transition-colors disabled:opacity-50"
+                  >
 
-                    ? <Loader2 size={12} className="animate-spin" />
+                    {cloning === c.id
 
-                    : <Copy size={12} />
+                      ? <Loader2 size={12} className="animate-spin" />
 
-                  }
+                      : <Copy size={12} />
 
-                  Copiar
+                    }
 
-                </button>
+                    Copiar
+
+                  </button>
+
+                )}
 
                 {/* ADMIN BUTTONS */}
 
                 {user?.role === "admin" && (
 
-                  <div className="flex gap-2">
+                  <div className="flex w-48 gap-2">
 
                     <button
                       onClick={() => editCard(c)}
                       className="flex-1 text-xs px-2 py-1 rounded bg-yellow-500/20 border border-yellow-500/40 text-yellow-300 hover:bg-yellow-500/30"
                     >
 
-                      ✏️ Editar
+                     Editar
 
                     </button>
 
@@ -424,7 +477,7 @@ export default function CommunityPage() {
                       className="flex-1 text-xs px-2 py-1 rounded bg-red-600/20 border border-red-600/40 text-red-300 hover:bg-red-600/30"
                     >
 
-                      🗑️ Excluir
+                       Excluir
 
                     </button>
 
@@ -450,6 +503,19 @@ export default function CommunityPage() {
             setEditingCard(null)
           }
           onSaved={load}
+        />
+
+      )}
+
+      {/* DETAIL MODAL */}
+
+      {selectedCard && (
+
+        <CommunityCardDetailModal
+          card={selectedCard}
+          onClose={() =>
+            setSelectedCard(null)
+          }
         />
 
       )}
