@@ -407,10 +407,13 @@ async def community_cards(request: Request, q: str = "", nature: str = "", card_
     # Require auth but show all approved cards
     user = await get_current_user(request, db)
 
-    query = {}
-
-    if user.get("role") != "admin":
-        query["public_status"] = "approved"
+    query = {
+        "public_status": (
+            {"$in": ["approved", "pending", "rejected"]}
+            if user.get("role") == "admin"
+            else "approved"
+        )
+    }
 
     if nature:
         query["natures"] = nature

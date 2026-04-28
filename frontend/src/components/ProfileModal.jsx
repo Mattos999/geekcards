@@ -21,6 +21,7 @@ export function ProfileModal({ onClose }) {
   const [saving, setSaving] = useState(false);
   const [users, setUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
+  const [usersError, setUsersError] = useState("");
   const [roleSaving, setRoleSaving] = useState(null);
 
   useEffect(() => {
@@ -28,11 +29,14 @@ export function ProfileModal({ onClose }) {
 
     const loadUsers = async () => {
       setLoadingUsers(true);
+      setUsersError("");
       try {
         const { data } = await api.get("/admin/users");
         setUsers(data);
       } catch (e) {
-        toast.error(formatApiError(e));
+        const message = formatApiError(e);
+        setUsersError(message);
+        toast.error(message);
       } finally {
         setLoadingUsers(false);
       }
@@ -257,7 +261,9 @@ export function ProfileModal({ onClose }) {
               })}
 
               {!loadingUsers && users.length === 0 && (
-                <div className="p-4 text-sm text-slate-400">Nenhum usuario encontrado.</div>
+                <div className="p-4 text-sm text-slate-400">
+                  {usersError || "Nenhum usuario encontrado."}
+                </div>
               )}
             </div>
           </section>
