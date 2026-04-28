@@ -17,6 +17,8 @@ export default function DeckBuilderPage() {
   const [natureFilter, setNatureFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [analysis, setAnalysis] = useState(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisError, setAnalysisError] = useState("");
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -76,8 +78,19 @@ export default function DeckBuilderPage() {
   };
 
   const loadAnalysis = async () => {
-    try { const { data } = await api.get(`/decks/${id}/analysis`); setAnalysis(data); }
-    catch {}
+    setAnalysisLoading(true);
+    setAnalysisError("");
+    try {
+      const { data } = await api.get(`/decks/${id}/analysis`);
+      setAnalysis(data);
+    }
+    catch (e) {
+      setAnalysis(null);
+      setAnalysisError(formatApiError(e));
+    }
+    finally {
+      setAnalysisLoading(false);
+    }
   };
 
   useEffect(() => { if (id && !loading) loadAnalysis(); }, [id, loading]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -239,7 +252,16 @@ export default function DeckBuilderPage() {
             <h3 className="text-sm uppercase tracking-widest text-slate-400 mb-3 flex items-center gap-2">
               <BarChart3 size={14} /> Análise
             </h3>
-            {!analysis ? (
+            {analysisLoading ? (
+              <div className="text-xs text-slate-500 text-center p-4 flex items-center justify-center gap-2">
+                <Loader2 size={14} className="animate-spin text-indigo-400" />
+                Carregando análise...
+              </div>
+            ) : analysisError ? (
+              <div className="text-xs text-rose-300 text-center p-4 rounded-lg bg-rose-500/10 border border-rose-500/30">
+                {analysisError}
+              </div>
+            ) : !analysis ? (
               <div className="text-xs text-slate-500 text-center p-4">Salve o deck para ver a análise.</div>
             ) : (
               <div className="space-y-4">
