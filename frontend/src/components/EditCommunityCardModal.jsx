@@ -7,6 +7,7 @@ import { Loader2, X, Plus, Zap } from "lucide-react";
 import { toast } from "sonner";
 
 const BLANK_ABILITY = { name: "", description: "", damage: 0, energy_cost: 0, energy_costs: [] };
+const normalizeEvolutionNumber = value => typeof value === "string" ? value : "";
 
 export function EditCommunityCardModal({ card, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
@@ -21,7 +22,7 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
       rarity: card.rarity ?? 1,
       is_alpha: card.is_alpha || false,
       is_evolution: card.is_evolution || false,
-      evolution_number: card.evolution_number || "",
+      evolution_number: normalizeEvolutionNumber(card.evolution_number),
       hp: card.hp ?? 0,
       recuo: card.recuo ?? 0,
       abilities: (card.abilities || []).map(ab => ({
@@ -119,7 +120,7 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
     try {
       const payload = {
         ...form,
-        evolution_number: form.is_evolution ? (form.evolution_number || null) : null,
+        evolution_number: form.is_evolution ? (normalizeEvolutionNumber(form.evolution_number) || "I") : null,
         abilities: form.abilities.map(({
           energy_type_to_add,
           energy_amount_to_add,
@@ -188,7 +189,16 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
           <input
             type="checkbox"
             checked={form.is_evolution}
-            onChange={e => set("is_evolution", e.target.checked)}
+            onChange={e => {
+              const checked = e.target.checked;
+              setForm(f => ({
+                ...f,
+                is_evolution: checked,
+                evolution_number: checked
+                  ? (normalizeEvolutionNumber(f.evolution_number) || "I")
+                  : ""
+              }));
+            }}
             className="w-4 h-4 rounded"
           />
           Evolução
@@ -210,7 +220,7 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
         <div>
           <label className={labelCls}>Nível de Evolução</label>
           <select
-            value={form.evolution_number}
+            value={normalizeEvolutionNumber(form.evolution_number) || "I"}
             onChange={e => set("evolution_number", e.target.value)}
             className={inputCls}
           >
