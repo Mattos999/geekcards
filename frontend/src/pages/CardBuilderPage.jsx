@@ -572,6 +572,13 @@ export default function CardBuilderPage() {
       toast.error("Escolha de qual carta esta evolucao vem");
       return;
     }
+    if (
+      id &&
+      card.public_status === "approved" &&
+      !window.confirm("Esta carta ja foi aprovada. Ao salvar, ela voltara para analise do admin. Continuar?")
+    ) {
+      return;
+    }
     setLoading(true);
     try {
       const payload = { ...card };

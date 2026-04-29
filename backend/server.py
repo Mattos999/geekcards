@@ -650,6 +650,8 @@ async def update_card(card_id: str, body: CardCreate, request: Request):
     if len(body.abilities) > 3:
         raise HTTPException(status_code=400, detail="Máximo de 3 habilidades por carta")
     update = normalize_card_payload(body)
+    if existing.get("public_status") == "approved" and user.get("role") != "admin":
+        update["public_status"] = "pending"
     await db.cards.update_one({"id": card_id}, {"$set": update})
     result = await db.cards.find_one({"id": card_id}, {"_id": 0})
     return result
