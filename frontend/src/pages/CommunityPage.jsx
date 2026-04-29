@@ -165,11 +165,11 @@ export default function CommunityPage() {
     try {
 
       await api.post(
-        `/cards/${card.id}/clone`
+        `/cards/${card.id}/add-to-library`
       );
 
       toast.success(
-        `"${card.name}" copiada para sua coleção`
+        `"${card.name}" adicionada à sua biblioteca`
       );
 
     }
@@ -451,7 +451,7 @@ export default function CommunityPage() {
 
                     }
 
-                    Copiar
+                    Adicionar
 
                   </button>
 

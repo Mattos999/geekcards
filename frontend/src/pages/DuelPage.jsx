@@ -227,6 +227,7 @@ const expandDeckCards = deckData => {
 };
 
 const validateDuelDeck = (cards, ownerLabel) => {
+  if (cards.some(card => card.public_status !== "approved")) return `${ownerLabel} possui cartas que ainda não foram aprovadas para duelo.`;
   if (cards.length !== 20) return `${ownerLabel} precisa ter exatamente 20 cartas`;
   if (cards.some(card => card.card_type === "Energia")) return `${ownerLabel} nao pode ter cartas de energia`;
   if (!cards.some(card => card.card_type === "Personagem" && !card.is_evolution)) {

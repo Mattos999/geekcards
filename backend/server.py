@@ -169,6 +169,12 @@ class OnlineDuelAction(BaseModel):
     ability_index: Optional[int] = None
 
 
+class LegacyCommunityMigrationResult(BaseModel):
+    ok: bool
+    migrated: int = 0
+    skipped: int = 0
+
+
 def normalize_card_payload(body: CardCreate) -> dict:
     payload = body.model_dump()
 
@@ -241,6 +247,92 @@ def normalize_deck_payload(body: DeckCreate) -> dict:
     energy_types = [energy for energy in payload.get("energy_types", []) if energy in ENERGY_TYPES]
     payload["energy_types"] = energy_types or ["Universal"]
     return payload
+
+
+def normalize_legacy_abilities(card: dict) -> dict:
+    abilities = card.get("abilities")
+    if isinstance(abilities, str):
+        card["abilities"] = [{"name": "Habilidade", "description": abilities}]
+    elif isinstance(abilities, list) and abilities and isinstance(abilities[0], str):
+        card["abilities"] = [
+            {"name": f"Habilidade {index + 1}", "description": ability}
+            for index, ability in enumerate(abilities)
+        ]
+    return card
+
+
+async def add_public_card_to_library(user_id: str, card_id: str) -> dict:
+    original = await db.cards.find_one({"id": card_id, "public_status": "approved"}, {"_id": 0})
+    if not original:
+        raise HTTPException(status_code=404, detail="Carta publica aprovada nao encontrada")
+    if original["user_id"] == user_id:
+        return {"ok": True, "already_owned": True, "card_id": card_id}
+
+    existing = await db.user_library.find_one({"user_id": user_id, "card_id": card_id})
+    if existing:
+        return {"ok": True, "already_added": True, "card_id": card_id}
+
+    await db.user_library.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "card_id": card_id,
+        "added_at": utc_now().isoformat(),
+    })
+    return {"ok": True, "card_id": card_id}
+
+
+async def library_card_ids_for_user(user_id: str) -> list[str]:
+    rows = await db.user_library.find({"user_id": user_id}, {"_id": 0, "card_id": 1}).to_list(2000)
+    return [row["card_id"] for row in rows if row.get("card_id")]
+
+
+async def accessible_cards_for_user(user_id: str, card_ids: Optional[list[str]] = None) -> list[dict]:
+    own_query = {"user_id": user_id}
+    if card_ids is not None:
+        own_query["id"] = {"$in": card_ids}
+    else:
+        own_query["archived_clone"] = {"$ne": True}
+    own_cards = await db.cards.find(own_query, {"_id": 0}).to_list(3000)
+
+    linked_ids = await library_card_ids_for_user(user_id)
+    if card_ids is not None:
+        linked_ids = [card_id for card_id in linked_ids if card_id in set(card_ids)]
+    linked_cards = []
+    if linked_ids:
+        linked_cards = await db.cards.find(
+            {"id": {"$in": linked_ids}, "public_status": "approved"},
+            {"_id": 0}
+        ).to_list(3000)
+        linked_id_set = set(linked_ids)
+        for card in linked_cards:
+            card["is_library_reference"] = True
+            card["library_card_id"] = card["id"]
+            card["can_edit"] = False
+            card["added_from_community"] = card["id"] in linked_id_set
+
+    own_by_id = {card["id"]: card for card in own_cards}
+    combined = list(own_cards)
+    for card in linked_cards:
+        if card["id"] not in own_by_id:
+            combined.append(card)
+
+    for card in combined:
+        normalize_legacy_abilities(card)
+        card.setdefault("can_edit", card.get("user_id") == user_id)
+    return combined
+
+
+async def accessible_cards_by_id_for_user(user_id: str, card_ids: list[str]) -> dict:
+    cards = await accessible_cards_for_user(user_id, card_ids)
+    return {card["id"]: card for card in cards}
+
+
+def validate_approved_duel_cards(cards: list[dict]) -> None:
+    if any(card.get("public_status") != "approved" for card in cards):
+        raise HTTPException(
+            status_code=400,
+            detail="Seu deck possui cartas que ainda nao foram aprovadas para duelo."
+        )
 
 
 # ============ Auth endpoints ============
@@ -469,9 +561,11 @@ async def create_card(body: CardCreate, request: Request):
     return doc
 
 
-@api_router.get("/cards", response_model=List[Card])
+@api_router.get("/cards")
 async def list_cards(request: Request):
     user = await get_current_user(request, db)
+    cards = await accessible_cards_for_user(user["id"])
+    return sorted(cards, key=lambda card: card.get("created_at", ""), reverse=True)
 
     cards = await db.cards.find(
         {"user_id": user["id"]},
@@ -504,7 +598,7 @@ async def list_cards(request: Request):
     return cards
 
 
-@api_router.get("/cards/{card_id}", response_model=Card)
+@api_router.get("/cards/{card_id}")
 async def get_card(card_id: str, request: Request):
     user = await get_current_user(request, db)
 
@@ -512,6 +606,14 @@ async def get_card(card_id: str, request: Request):
         {"id": card_id, "user_id": user["id"]},
         {"_id": 0}
     )
+
+    if not card:
+        linked = await db.user_library.find_one({"user_id": user["id"], "card_id": card_id})
+        if linked:
+            card = await db.cards.find_one({"id": card_id, "public_status": "approved"}, {"_id": 0})
+            if card:
+                card["is_library_reference"] = True
+                card["can_edit"] = False
 
     if not card:
         raise HTTPException(status_code=404, detail="Carta não encontrada")
@@ -633,26 +735,18 @@ async def community_cards(request: Request, q: str = "", nature: str = "", card_
     return cards
 
 
+@api_router.post("/cards/{card_id}/add-to-library")
+async def add_to_library(card_id: str, request: Request):
+    user = await get_current_user(request, db)
+    result = await add_public_card_to_library(user["id"], card_id)
+    return {**result, "message": "Carta adicionada à biblioteca"}
+
+
 @api_router.post("/cards/{card_id}/clone")
 async def clone_card(card_id: str, request: Request):
     user = await get_current_user(request, db)
-    original = await db.cards.find_one({"id": card_id, "public_status": "approved"}, {"_id": 0})
-    if not original:
-        raise HTTPException(status_code=404, detail="Carta pública não encontrada")
-    if original["user_id"] == user["id"]:
-        raise HTTPException(status_code=400, detail="Esta carta já é sua")
-    new_id = str(uuid.uuid4())
-    clone = {
-        **original,
-        "id": new_id,
-        "source_card_id": original.get("source_card_id") or original["id"],
-        "user_id": user["id"],
-        "public_status": "private",
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    await db.cards.insert_one(clone)
-    clone.pop("_id", None)
-    return clone
+    result = await add_public_card_to_library(user["id"], card_id)
+    return {**result, "message": "Carta adicionada à biblioteca"}
 
 
 # ============ Admin moderation ============
@@ -752,6 +846,55 @@ async def admin_edit_card(card_id: str, body: CardCreate, request: Request):
     await db.cards.update_one({"id": card_id}, {"$set": update})
     result = await db.cards.find_one({"id": card_id}, {"_id": 0})
     return result
+
+
+@api_router.post("/admin/community/migrate-legacy-clones", response_model=LegacyCommunityMigrationResult)
+async def migrate_legacy_community_clones(request: Request):
+    await require_admin(request)
+    source_fields = ["original_card_id", "cloned_from", "source_card_id"]
+    migrated = 0
+    skipped = 0
+
+    query = {
+        "$or": [{field: {"$exists": True, "$ne": None, "$ne": ""}} for field in source_fields],
+        "legacy_clone": {"$ne": True},
+        "archived_clone": {"$ne": True},
+    }
+    clones = await db.cards.find(query, {"_id": 0}).to_list(2000)
+
+    for clone in clones:
+        source_id = next((clone.get(field) for field in source_fields if clone.get(field)), None)
+        if not source_id or source_id == clone.get("id"):
+            skipped += 1
+            continue
+
+        original = await db.cards.find_one({"id": source_id, "public_status": "approved"}, {"_id": 0})
+        if not original or original.get("user_id") == clone.get("user_id"):
+            skipped += 1
+            continue
+
+        existing_link = await db.user_library.find_one({"user_id": clone["user_id"], "card_id": original["id"]})
+        if not existing_link:
+            await db.user_library.insert_one({
+                "id": str(uuid.uuid4()),
+                "user_id": clone["user_id"],
+                "card_id": original["id"],
+                "added_at": utc_now().isoformat(),
+                "migrated_from_clone_id": clone["id"],
+            })
+
+        await db.cards.update_one(
+            {"id": clone["id"]},
+            {"$set": {
+                "legacy_clone": True,
+                "archived_clone": True,
+                "legacy_source_card_id": original["id"],
+                "legacy_migrated_at": utc_now().isoformat(),
+            }}
+        )
+        migrated += 1
+
+    return {"ok": True, "migrated": migrated, "skipped": skipped}
 
 @api_router.delete("/admin/cards/{card_id}")
 async def admin_delete_card(
@@ -873,13 +1016,14 @@ async def _expand_owned_deck(user_id: str, deck_id: str) -> tuple[dict, list[dic
     unique_ids = list(set(deck.get("card_ids", [])))
     cards = []
     if unique_ids:
-        cards = await db.cards.find({"id": {"$in": unique_ids}, "user_id": user_id}, {"_id": 0}).to_list(500)
+        cards = await accessible_cards_for_user(user_id, unique_ids)
     cards_by_id = {card["id"]: card for card in cards}
     expanded = [cards_by_id[cid] for cid in deck.get("card_ids", []) if cid in cards_by_id]
     return deck, expanded, _validate_deck_rules(deck.get("card_ids", []), cards_by_id)
 
 
 def _validate_online_deck(cards: list[dict], warnings: list[str]) -> None:
+    validate_approved_duel_cards(cards)
     if len(cards) != 20:
         raise HTTPException(status_code=400, detail="Deck de duelo precisa ter exatamente 20 cartas")
     blocking = [warning for warning in warnings if "energia vem da Energy Zone" in warning or "maximo 2" in warning or "mÃ¡ximo 2" in warning]
@@ -1427,7 +1571,7 @@ async def get_deck(deck_id: str, request: Request):
     unique_ids = list(set(deck.get("card_ids", [])))
     cards = []
     if unique_ids:
-        cards = await db.cards.find({"id": {"$in": unique_ids}, "user_id": user["id"]}, {"_id": 0}).to_list(500)
+        cards = await accessible_cards_for_user(user["id"], unique_ids)
     cards_by_id = {c["id"]: c for c in cards}
     warnings = _validate_deck_rules(deck.get("card_ids", []), cards_by_id)
     return {"deck": deck, "cards": cards, "warnings": warnings}
@@ -1466,7 +1610,7 @@ async def analyze_deck(deck_id: str, request: Request):
     unique_ids = list(set(card_ids))
     cards_list = []
     if unique_ids:
-        cards_list = await db.cards.find({"id": {"$in": unique_ids}, "user_id": user["id"]}, {"_id": 0}).to_list(500)
+        cards_list = await accessible_cards_for_user(user["id"], unique_ids)
     cards_by_id = {c["id"]: c for c in cards_list}
 
     # Distribution
@@ -1552,6 +1696,8 @@ async def startup():
         await db.online_duels.create_index("id", unique=True)
         await db.online_duels.create_index("players.p1.user_id")
         await db.online_duels.create_index("players.p2.user_id")
+        await db.user_library.create_index([("user_id", 1), ("card_id", 1)], unique=True)
+        await db.user_library.create_index("card_id")
     except Exception as e:
         logger.error(f"Index creation: {e}")
     # Init storage

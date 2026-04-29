@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { api, formatApiError } from "../lib/api";
 import { NATURES, CARD_TYPES } from "../lib/natures";
 import { GameCard } from "../components/GameCard";
-import { Search, Filter, Plus, Sparkles } from "lucide-react";
+import { CommunityCardDetailModal } from "../components/CommunityCardDetailModal";
+import { Search, Plus, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 export default function CardLibraryPage() {
@@ -12,6 +13,7 @@ export default function CardLibraryPage() {
   const [natureFilter, setNatureFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [alphaOnly, setAlphaOnly] = useState(false);
+  const [selectedCard, setSelectedCard] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -80,7 +82,21 @@ export default function CardLibraryPage() {
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
           {filtered.map(c => (
             <div key={c.id} className="animate-fade-in-up flex flex-col items-center gap-1.5">
-              <GameCard card={c} size="md" onClick={() => navigate(`/cards/${c.id}/edit`)} />
+              <GameCard card={c} size="md" onClick={() => setSelectedCard(c)} />
+              {(c.can_edit === false || c.is_library_reference) && (
+                <div className="text-[10px] text-center uppercase tracking-wider font-semibold text-indigo-300">
+                  ● Comunidade
+                </div>
+              )}
+              {c.can_edit !== false && !c.is_library_reference && (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/cards/${c.id}/edit`)}
+                  className="w-40 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-1.5 text-xs text-slate-300 hover:border-indigo-500/50 hover:text-indigo-200"
+                >
+                  Editar
+                </button>
+              )}
               {c.public_status && c.public_status !== "private" && (
                 <div className="text-[10px] text-center uppercase tracking-wider font-semibold"
                   style={{
@@ -92,6 +108,9 @@ export default function CardLibraryPage() {
             </div>
           ))}
         </div>
+      )}
+      {selectedCard && (
+        <CommunityCardDetailModal card={selectedCard} onClose={() => setSelectedCard(null)} />
       )}
     </div>
   );
