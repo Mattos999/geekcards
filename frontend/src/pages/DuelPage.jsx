@@ -385,7 +385,11 @@ export default function DuelPage() {
     setOnlineBusy(true);
     try {
       const { data } = await api.post(`/duels/online/${activeOnlineDuel.id}${path}`, payload);
-      setActiveOnlineDuel(data);
+      if (path === "/decline" || payload.kind === "forfeit") {
+        setActiveOnlineDuel(null);
+      } else {
+        setActiveOnlineDuel(data);
+      }
       await loadOnlineLobby({ silent: true });
     } catch (e) {
       toast.error(formatApiError(e));
@@ -579,6 +583,7 @@ export default function DuelPage() {
     const onlineIsPlayerTurn = onlineState?.turn === "player" && !onlineState?.winner;
     const inviteReceived = activeOnlineDuel?.status === "invited" && activeOnlineDuel?.invitee_id === activeOnlineDuel?.me?.user_id;
     const inviteSent = activeOnlineDuel?.status === "invited" && !inviteReceived;
+    const onlineHasDuelProcess = Boolean(activeOnlineDuel && activeOnlineDuel.status !== "invited");
 
     return (
       <div className="p-6 max-w-[1500px] mx-auto">
@@ -602,7 +607,8 @@ export default function DuelPage() {
           </button>
         </div>
 
-        <div className="grid gap-5 xl:grid-cols-[22rem_minmax(0,1fr)]">
+        <div className={`grid gap-5 ${onlineHasDuelProcess ? "" : "xl:grid-cols-[22rem_minmax(0,1fr)]"}`}>
+          {!onlineHasDuelProcess && (
           <aside className="space-y-4">
             <div className="glass rounded-xl p-4">
               <div className="mb-3 flex items-center justify-between">
@@ -618,12 +624,14 @@ export default function DuelPage() {
                   <div key={other.id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950/50 p-3">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-bold">{other.name}</div>
-                      <div className="text-xs text-emerald-300">online</div>
+                      <div className={`text-xs ${other.in_duel ? "text-amber-300" : "text-emerald-300"}`}>
+                        {other.in_duel ? "em duelo" : "online"}
+                      </div>
                     </div>
                     <button
                       type="button"
                       onClick={() => inviteOnlinePlayer(other.id)}
-                      disabled={onlineBusy}
+                      disabled={onlineBusy || other.in_duel}
                       className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium hover:bg-indigo-500 disabled:opacity-50"
                     >
                       Convidar
@@ -654,6 +662,7 @@ export default function DuelPage() {
               </div>
             </div>
           </aside>
+          )}
 
           <section className="min-w-0">
             {!activeOnlineDuel ? (
@@ -697,6 +706,10 @@ export default function DuelPage() {
                     className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium hover:bg-indigo-500 disabled:opacity-50">
                     Confirmar deck
                   </button>
+                  <button onClick={() => postOnline("/decline")} disabled={onlineBusy}
+                    className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-50">
+                    Encerrar
+                  </button>
                 </div>
                 <div className="mt-5 grid gap-2 text-sm text-slate-400 sm:grid-cols-2">
                   <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">Você: {activeOnlineDuel.me?.ready ? "pronto" : "escolhendo"}</div>
@@ -712,14 +725,24 @@ export default function DuelPage() {
                       {activeOnlineDuel.coin?.winner_name} começa. Escolha sua ativa e banco; a mão do oponente não é exibida.
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => postOnline("/setup-ready", { ready: !onlinePlayer?.setup_ready })}
-                    disabled={!onlinePlayer?.active}
-                    className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium hover:bg-indigo-500 disabled:opacity-40"
-                  >
-                    {onlinePlayer?.setup_ready ? "Desmarcar pronto" : "Pronto"}
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => postOnline("/decline")}
+                      disabled={onlineBusy}
+                      className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+                    >
+                      Encerrar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => postOnline("/setup-ready", { ready: !onlinePlayer?.setup_ready })}
+                      disabled={!onlinePlayer?.active}
+                      className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium hover:bg-indigo-500 disabled:opacity-40"
+                    >
+                      {onlinePlayer?.setup_ready ? "Desmarcar pronto" : "Pronto"}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid gap-4 xl:grid-cols-2">
@@ -760,11 +783,17 @@ export default function DuelPage() {
                       <span className="text-xs text-slate-500">{onlineOpponent?.setup_ready ? "pronto" : "preparando"}</span>
                     </div>
                     <div className="flex gap-3">
-                      <CardThumb card={onlineOpponent?.active} onClick={onlineOpponent?.active ? () => setDetailCard(onlineOpponent.active) : undefined} />
-                      <div className="flex gap-2">
-                        {[0, 1, 2].map(index => (
-                          <CardThumb key={index} card={onlineOpponent?.bench?.[index]} compact onClick={onlineOpponent?.bench?.[index] ? () => setDetailCard(onlineOpponent.bench[index]) : undefined} />
-                        ))}
+                      <div>
+                        <div className="mb-2 text-[10px] uppercase tracking-wider text-slate-500">Ativa</div>
+                        <CardThumb card={null} />
+                      </div>
+                      <div>
+                        <div className="mb-2 text-[10px] uppercase tracking-wider text-slate-500">Banco oculto</div>
+                        <div className="flex gap-2">
+                          {[0, 1, 2].map(index => (
+                            <CardThumb key={index} card={null} compact />
+                          ))}
+                        </div>
                       </div>
                     </div>
                     <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950/50 p-3 text-sm text-slate-400">
@@ -784,7 +813,16 @@ export default function DuelPage() {
                   <div className="glass rounded-xl p-4">
                     <div className="mb-3 flex items-center justify-between">
                       <div className="flex items-center gap-2 text-sm font-bold"><Bot size={16} className="text-rose-300" /> {activeOnlineDuel.opponent?.name}</div>
-                      <div className="font-mono text-sm text-rose-300">{onlineOpponent.points} / {DUEL_RULES.POINTS_TO_WIN}</div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setCemeterySide("opponent")}
+                          className="inline-flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-300 hover:border-rose-500/50"
+                        >
+                          <Archive size={12} /> Cemiterio {onlineOpponent.discard?.length || 0}
+                        </button>
+                        <div className="font-mono text-sm text-rose-300">{onlineOpponent.points} / {DUEL_RULES.POINTS_TO_WIN}</div>
+                      </div>
                     </div>
                     <div className="grid gap-3 lg:grid-cols-[1fr_20rem]">
                       <FieldCard card={onlineOpponent.active} title="Ativa" onCardClick={setDetailCard} />
@@ -800,6 +838,13 @@ export default function DuelPage() {
                     <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                       <div className="flex items-center gap-2 text-sm font-bold"><Sparkles size={16} className="text-indigo-300" /> Você</div>
                       <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setCemeterySide("player")}
+                          className="inline-flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-300 hover:border-indigo-500/50"
+                        >
+                          <Archive size={12} /> Cemiterio {onlinePlayer.discard?.length || 0}
+                        </button>
                         <div className="font-mono text-sm text-indigo-300">{onlinePlayer.points} / {DUEL_RULES.POINTS_TO_WIN}</div>
                         <span className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-2 py-1 text-xs text-yellow-200">Atual: {onlinePlayer.energy_zone?.current}</span>
                         <span className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-400">Próxima: {onlinePlayer.energy_zone?.next}</span>
@@ -854,7 +899,16 @@ export default function DuelPage() {
                         </div>
                       </div>
                     </div>
-                    <div className="mt-4 flex justify-end">
+                    <div className="mt-4 flex justify-end gap-2">
+                      <button
+                        onClick={() => {
+                          if (window.confirm("Desistir deste duelo?")) onlineAction({ kind: "forfeit" });
+                        }}
+                        disabled={Boolean(onlineState.winner)}
+                        className="inline-flex items-center gap-2 rounded-lg border border-rose-500/40 px-3 py-2 text-sm text-rose-200 hover:bg-rose-500/10 disabled:opacity-40"
+                      >
+                        Desistir
+                      </button>
                       <button onClick={() => onlineAction({ kind: "end_turn" })} disabled={!onlineIsPlayerTurn} className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-sm hover:bg-indigo-500 disabled:opacity-40">Encerrar turno <ChevronRight size={14} /></button>
                     </div>
                   </div>
@@ -871,6 +925,14 @@ export default function DuelPage() {
             )}
           </section>
         </div>
+        {cemeterySide && onlineState && (
+          <CemeteryModal
+            title={cemeterySide === "player" ? "Seu cemiterio" : "Cemiterio do oponente"}
+            cards={onlineState.players?.[cemeterySide]?.discard || []}
+            onClose={() => setCemeterySide(null)}
+            onCardClick={setDetailCard}
+          />
+        )}
         {detailCard && <CommunityCardDetailModal card={detailCard} onClose={() => setDetailCard(null)} />}
       </div>
     );

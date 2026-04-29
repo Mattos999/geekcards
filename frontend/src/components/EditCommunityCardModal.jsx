@@ -1,18 +1,257 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { api, formatApiError } from "../lib/api";
 import { NATURES, NATURE_COLORS, CARD_TYPES, ENERGY_TYPES } from "../lib/natures";
 import { EnergyCostSymbols } from "./EnergyCostSymbols";
 import { normalizeAbilityEnergyCosts, sanitizeEnergyCosts, totalEnergyCost } from "../lib/energyCosts";
-import { normalizeEffects } from "../lib/cardEffects";
-import { Loader2, X, Plus, Zap } from "lucide-react";
+import {
+  DURATIONS,
+  DURATION_LABELS,
+  EFFECT_CONDITIONS,
+  EFFECT_CONDITION_LABELS,
+  EFFECT_TYPES,
+  TARGETS,
+  TARGET_LABELS,
+  effectSummary,
+  effectTypeLabel,
+  normalizeEffects,
+} from "../lib/cardEffects";
+import { Loader2, X, Plus, Zap, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 const BLANK_ABILITY = { name: "", description: "", damage: 0, energy_cost: 0, energy_costs: [] };
 const normalizeEvolutionNumber = value => value === "I" ? "II" : (typeof value === "string" ? value : "");
+const BLANK_EFFECT = {
+  type: EFFECT_TYPES.DAMAGE,
+  target: TARGETS.OPPONENT_ACTIVE,
+  duration: DURATIONS.INSTANT,
+  amount: 0,
+  attribute: "",
+  energy_type: "",
+  nature: "",
+  card_name: "",
+  tag: "",
+  condition: EFFECT_CONDITIONS.ALWAYS,
+};
+const EFFECT_ATTRIBUTES = [
+  { value: "hp", label: "HP" },
+  { value: "damage", label: "Dano" },
+  { value: "recuo", label: "Recuo" },
+  { value: "cura", label: "Cura" },
+];
+const EFFECT_FIELD_CONFIG = {
+  [EFFECT_TYPES.DAMAGE]: ["target", "amount"],
+  [EFFECT_TYPES.HEAL]: ["target", "amount"],
+  [EFFECT_TYPES.ADD_TYPED_ENERGY]: ["target", "energy_type", "amount"],
+  [EFFECT_TYPES.ADD_ENERGY]: ["target", "amount"],
+  [EFFECT_TYPES.ADD_MULTIPLE_ENERGY]: ["target", "energy_type", "amount"],
+  [EFFECT_TYPES.DAMAGE_EXTRA_BY_TARGET_TYPE]: ["target", "nature", "amount", "duration"],
+  [EFFECT_TYPES.DAMAGE_EXTRA_BY_BENCH_CARD]: ["target", "card_name", "nature", "amount"],
+  [EFFECT_TYPES.BUFF_BASE_ATTRIBUTES]: ["target", "attribute", "amount", "duration"],
+  [EFFECT_TYPES.BUFF_DAMAGE_BY_TAG]: ["target", "tag", "amount", "duration"],
+  [EFFECT_TYPES.BUFF_DAMAGE_BY_ATTACHED_ENERGY]: ["target", "energy_type", "amount", "duration"],
+  [EFFECT_TYPES.DOUBLE_DAMAGE_AGAINST_TYPE]: ["target", "nature", "duration"],
+  [EFFECT_TYPES.WEAKNESS_OVERRIDE]: ["target", "nature", "duration"],
+  [EFFECT_TYPES.ENERGY_REQUIRED_TYPE]: ["target", "energy_type", "duration"],
+  [EFFECT_TYPES.IF_BENCH_HAS_CARD]: ["card_name"],
+  [EFFECT_TYPES.IF_TARGET_NATURE]: ["target", "nature"],
+  [EFFECT_TYPES.IF_TARGET_TAG]: ["target", "tag"],
+  [EFFECT_TYPES.IF_SELF_HAS_ENERGY_COUNT]: ["energy_type", "amount"],
+  [EFFECT_TYPES.IF_BENCH_COUNT_BY_NATURE]: ["nature", "amount"],
+  [EFFECT_TYPES.BUFF_EQUIPPED_CARD_DAMAGE]: ["target", "amount", "condition"],
+};
+const DEFAULT_EFFECT_FIELDS = ["target", "amount", "duration"];
+
+const EffectsList = ({ effects, onRemove }) => (
+  normalizeEffects(effects).length > 0 && (
+    <div className="flex flex-wrap gap-2">
+      {normalizeEffects(effects).map((effect, idx) => (
+        <button
+          key={`${effect.type}-${effect.target}-${idx}`}
+          type="button"
+          onClick={() => onRemove(idx)}
+          className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-300 hover:border-rose-500/60 hover:text-rose-200"
+        >
+          {effectSummary(effect)}
+          <X size={11} />
+        </button>
+      ))}
+    </div>
+  )
+);
+
+const EffectControls = ({ effect, onChange, onAdd }) => {
+  const inputCls = "min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none";
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <label className="min-w-0 sm:col-span-2">
+          <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Efeito</span>
+          <select value={effect.type} onChange={e => onChange("type", e.target.value)} className={inputCls}>
+            {Object.values(EFFECT_TYPES).map(type => <option key={type} value={type}>{effectTypeLabel(type)}</option>)}
+          </select>
+        </label>
+        <label className="min-w-0">
+          <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Alvo</span>
+          <select value={effect.target || TARGETS.OPPONENT_ACTIVE} onChange={e => onChange("target", e.target.value)} className={inputCls}>
+            {Object.values(TARGETS).map(target => <option key={target} value={target}>{TARGET_LABELS[target]}</option>)}
+          </select>
+        </label>
+        <label className="min-w-0">
+          <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Valor</span>
+          <input type="number" min={0} value={effect.amount ?? 0} onChange={e => onChange("amount", e.target.value)} className={`${inputCls} font-mono`} />
+        </label>
+        <label className="min-w-0">
+          <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Duração</span>
+          <select value={effect.duration || DURATIONS.INSTANT} onChange={e => onChange("duration", e.target.value)} className={inputCls}>
+            {Object.values(DURATIONS).map(duration => <option key={duration} value={duration}>{DURATION_LABELS[duration]}</option>)}
+          </select>
+        </label>
+        <label className="min-w-0">
+          <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Condição</span>
+          <select value={effect.condition || EFFECT_CONDITIONS.ALWAYS} onChange={e => onChange("condition", e.target.value)} className={inputCls}>
+            {Object.values(EFFECT_CONDITIONS).map(condition => <option key={condition || "ALWAYS"} value={condition}>{EFFECT_CONDITION_LABELS[condition]}</option>)}
+          </select>
+        </label>
+        <label className="min-w-0">
+          <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Natureza</span>
+          <select value={effect.nature || ""} onChange={e => onChange("nature", e.target.value)} className={inputCls}>
+            <option value="">Qualquer</option>
+            {NATURES.map(nature => <option key={nature} value={nature}>{nature}</option>)}
+          </select>
+        </label>
+        <label className="min-w-0">
+          <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Energia</span>
+          <select value={effect.energy_type || ""} onChange={e => onChange("energy_type", e.target.value)} className={inputCls}>
+            <option value="">Qualquer</option>
+            {ENERGY_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
+          </select>
+        </label>
+        <label className="min-w-0">
+          <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Atributo</span>
+          <select value={effect.attribute || ""} onChange={e => onChange("attribute", e.target.value)} className={inputCls}>
+            <option value="">Selecione</option>
+            {EFFECT_ATTRIBUTES.map(attribute => <option key={attribute.value} value={attribute.value}>{attribute.label}</option>)}
+          </select>
+        </label>
+        <label className="min-w-0">
+          <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Carta</span>
+          <input value={effect.card_name || ""} onChange={e => onChange("card_name", e.target.value)} className={inputCls} />
+        </label>
+        <label className="min-w-0">
+          <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Marcador</span>
+          <input value={effect.tag || ""} onChange={e => onChange("tag", e.target.value)} className={inputCls} />
+        </label>
+        <button
+          type="button"
+          onClick={onAdd}
+          className="inline-flex h-10 items-center justify-center rounded-lg border border-indigo-500/40 bg-indigo-500/20 px-3 text-xs text-indigo-200 hover:bg-indigo-500/30 sm:mt-5"
+        >
+          <Plus size={13} />
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const DynamicEffectControls = ({ effect, onChange, onAdd }) => {
+  const inputCls = "min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none";
+  const fields = EFFECT_FIELD_CONFIG[effect.type] || DEFAULT_EFFECT_FIELDS;
+  const show = field => fields.includes(field);
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="min-w-[18rem] flex-[2_1_24rem]">
+          <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Efeito</span>
+          <select value={effect.type} onChange={e => onChange("type", e.target.value)} className={inputCls}>
+            {Object.values(EFFECT_TYPES).map(type => <option key={type} value={type}>{effectTypeLabel(type)}</option>)}
+          </select>
+        </label>
+        {show("target") && (
+          <label className="min-w-[11rem] flex-[1_1_13rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Alvo</span>
+            <select value={effect.target || TARGETS.OPPONENT_ACTIVE} onChange={e => onChange("target", e.target.value)} className={inputCls}>
+              {Object.values(TARGETS).map(target => <option key={target} value={target}>{TARGET_LABELS[target]}</option>)}
+            </select>
+          </label>
+        )}
+        {show("amount") && (
+          <label className="min-w-[11rem] flex-[1_1_13rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Valor</span>
+            <input type="number" min={0} value={effect.amount ?? 0} onChange={e => onChange("amount", e.target.value)} className={`${inputCls} font-mono`} />
+          </label>
+        )}
+        {show("duration") && (
+          <label className="min-w-[11rem] flex-[1_1_13rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Duração</span>
+            <select value={effect.duration || DURATIONS.INSTANT} onChange={e => onChange("duration", e.target.value)} className={inputCls}>
+              {Object.values(DURATIONS).map(duration => <option key={duration} value={duration}>{DURATION_LABELS[duration]}</option>)}
+            </select>
+          </label>
+        )}
+        {show("condition") && (
+          <label className="min-w-[11rem] flex-[1_1_13rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Condição</span>
+            <select value={effect.condition || EFFECT_CONDITIONS.ALWAYS} onChange={e => onChange("condition", e.target.value)} className={inputCls}>
+              {Object.values(EFFECT_CONDITIONS).map(condition => <option key={condition || "ALWAYS"} value={condition}>{EFFECT_CONDITION_LABELS[condition]}</option>)}
+            </select>
+          </label>
+        )}
+        {show("nature") && (
+          <label className="min-w-[11rem] flex-[1_1_13rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Natureza</span>
+            <select value={effect.nature || ""} onChange={e => onChange("nature", e.target.value)} className={inputCls}>
+              <option value="">Qualquer</option>
+              {NATURES.map(nature => <option key={nature} value={nature}>{nature}</option>)}
+            </select>
+          </label>
+        )}
+        {show("energy_type") && (
+          <label className="min-w-[11rem] flex-[1_1_13rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Energia</span>
+            <select value={effect.energy_type || ""} onChange={e => onChange("energy_type", e.target.value)} className={inputCls}>
+              <option value="">Qualquer</option>
+              {ENERGY_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
+            </select>
+          </label>
+        )}
+        {show("attribute") && (
+          <label className="min-w-[11rem] flex-[1_1_13rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Atributo</span>
+            <select value={effect.attribute || ""} onChange={e => onChange("attribute", e.target.value)} className={inputCls}>
+              <option value="">Selecione</option>
+              {EFFECT_ATTRIBUTES.map(attribute => <option key={attribute.value} value={attribute.value}>{attribute.label}</option>)}
+            </select>
+          </label>
+        )}
+        {show("card_name") && (
+          <label className="min-w-[14rem] flex-[1_1_16rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Carta</span>
+            <input value={effect.card_name || ""} onChange={e => onChange("card_name", e.target.value)} className={inputCls} />
+          </label>
+        )}
+        {show("tag") && (
+          <label className="min-w-[14rem] flex-[1_1_16rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Marcador</span>
+            <input value={effect.tag || ""} onChange={e => onChange("tag", e.target.value)} className={inputCls} />
+          </label>
+        )}
+        <button
+          type="button"
+          onClick={onAdd}
+          className="mt-2 inline-flex h-10 basis-full items-center justify-center rounded-lg border border-indigo-500/40 bg-indigo-500/20 px-3 text-xs text-indigo-200 hover:bg-indigo-500/30 sm:max-w-44"
+        >
+          <Plus size={13} />
+        </button>
+      </div>
+    </div>
+  );
+};
 
 export function EditCommunityCardModal({ card, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [form, setForm] = useState(null);
+  const [evolutionOptions, setEvolutionOptions] = useState([]);
 
   useEffect(() => {
     if (!card) return;
@@ -29,7 +268,14 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
       hp: card.hp ?? 0,
       recuo: card.recuo ?? 0,
       effects: normalizeEffects(card.effects),
+      effect_to_add: { ...BLANK_EFFECT },
       passive_effects: normalizeEffects(card.passive_effects),
+      passive_effect_to_add: {
+        ...BLANK_EFFECT,
+        type: EFFECT_TYPES.BUFF_EQUIPPED_CARD_DAMAGE,
+        target: TARGETS.EQUIPPED_CARD,
+        condition: EFFECT_CONDITIONS.EQUIPPED_CARD_DEALS_DAMAGE,
+      },
       speed: card.speed || "",
       attach_to: card.attach_to || "",
       abilities: (card.abilities || []).map(ab => ({
@@ -39,6 +285,7 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
         energy_cost: ab.energy_cost ?? 0,
         energy_costs: normalizeAbilityEnergyCosts(ab),
         effects: normalizeEffects(ab.effects),
+        effect_to_add: { ...BLANK_EFFECT, amount: ab.damage ?? 0 },
         energy_type_to_add: ENERGY_TYPES[0],
         energy_amount_to_add: 1,
       })),
@@ -48,6 +295,17 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
       public_status: card.public_status || "approved",
     });
   }, [card]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get("/cards");
+        setEvolutionOptions(data || []);
+      } catch (e) {
+        toast.error(formatApiError(e));
+      }
+    })();
+  }, []);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -112,6 +370,7 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
       ...form.abilities,
       {
         ...BLANK_ABILITY,
+        effect_to_add: { ...BLANK_EFFECT },
         energy_type_to_add: ENERGY_TYPES[0],
         energy_amount_to_add: 1,
       }
@@ -120,6 +379,115 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
 
   const removeAbility = (i) => {
     set("abilities", form.abilities.filter((_, idx) => idx !== i));
+  };
+
+  const getEvolutionStage = candidate => {
+    if (!candidate?.is_evolution) return 1;
+    const stages = { I: 2, II: 2, III: 3, IV: 4 };
+    return stages[String(candidate.evolution_number || "II").toUpperCase()] || 2;
+  };
+
+  const validEvolutionTargets = useMemo(() => {
+    const previousStage = getEvolutionStage(form) - 1;
+    return evolutionOptions.filter(option =>
+      option.id !== card?.id &&
+      option.card_type === "Personagem" &&
+      getEvolutionStage(option) === previousStage
+    );
+  }, [card?.id, evolutionOptions, form]);
+
+  const setEvolutionTarget = targetId => {
+    const target = evolutionOptions.find(option => option.id === targetId);
+    setForm(f => ({
+      ...f,
+      evolves_from_card_id: target?.id || "",
+      evolves_from_name: target?.name || "",
+    }));
+  };
+
+  const upload = async event => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      const { data } = await api.post("/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      set("image_url", data.url);
+      toast.success("Imagem carregada");
+    } catch (e) {
+      toast.error(formatApiError(e));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const updateAbilityEffectDraft = (abilityIndex, field, value) => {
+    const ability = form.abilities[abilityIndex];
+    updateAbility(abilityIndex, "effect_to_add", {
+      ...(ability.effect_to_add || BLANK_EFFECT),
+      [field]: field === "amount" ? parseInt(value, 10) || 0 : value,
+    });
+  };
+
+  const addAbilityEffect = abilityIndex => {
+    const ability = form.abilities[abilityIndex];
+    const effects = [
+      ...normalizeEffects(ability.effects),
+      {
+        ...(ability.effect_to_add || BLANK_EFFECT),
+        duration: ability.effect_to_add?.duration || DURATIONS.INSTANT,
+        amount: parseInt(ability.effect_to_add?.amount, 10) || 0,
+      },
+    ];
+    const list = [...form.abilities];
+    list[abilityIndex] = {
+      ...ability,
+      effects,
+      effect_to_add: { ...BLANK_EFFECT, amount: ability.damage ?? 0 },
+    };
+    set("abilities", list);
+  };
+
+  const removeAbilityEffect = (abilityIndex, effectIndex) => {
+    const ability = form.abilities[abilityIndex];
+    updateAbility(
+      abilityIndex,
+      "effects",
+      normalizeEffects(ability.effects).filter((_, idx) => idx !== effectIndex)
+    );
+  };
+
+  const updateEffectDraft = (draftField, field, value) => {
+    setForm(f => ({
+      ...f,
+      [draftField]: {
+        ...(f[draftField] || BLANK_EFFECT),
+        [field]: field === "amount" ? parseInt(value, 10) || 0 : value,
+      },
+    }));
+  };
+
+  const addCardEffect = (listField, draftField, resetEffect = BLANK_EFFECT) => {
+    setForm(f => ({
+      ...f,
+      [listField]: [
+        ...normalizeEffects(f[listField]),
+        {
+          ...(f[draftField] || resetEffect),
+          duration: f[draftField]?.duration || DURATIONS.INSTANT,
+          amount: parseInt(f[draftField]?.amount, 10) || 0,
+        },
+      ],
+      [draftField]: { ...resetEffect },
+    }));
+  };
+
+  const removeCardEffect = (listField, effectIndex) => {
+    setForm(f => ({
+      ...f,
+      [listField]: normalizeEffects(f[listField]).filter((_, idx) => idx !== effectIndex),
+    }));
   };
 
   const save = async () => {
@@ -136,6 +504,7 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
         abilities: form.abilities.map(({
           energy_type_to_add,
           energy_amount_to_add,
+          effect_to_add,
           ...ability
         }) => ({
           ...ability,
@@ -144,6 +513,8 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
           energy_cost: totalEnergyCost(ability.energy_costs),
         })),
       };
+      delete payload.effect_to_add;
+      delete payload.passive_effect_to_add;
 
       await api.put(`/admin/cards/${card.id}/edit`, payload);
       toast.success("Carta atualizada");
@@ -163,7 +534,7 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 overflow-y-auto">
-      <div className="glass rounded-xl p-6 w-full max-w-xl my-auto space-y-4">
+      <div className="glass rounded-xl p-6 w-full max-w-4xl my-auto space-y-4">
 
         {/* Header */}
         <div className="flex justify-between items-center">
@@ -236,11 +607,27 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
           <label className={labelCls}>Nível de Evolução</label>
           <select
             value={normalizeEvolutionNumber(form.evolution_number) || "II"}
-            onChange={e => set("evolution_number", e.target.value)}
+            onChange={e => setForm(f => ({
+              ...f,
+              evolution_number: e.target.value,
+              evolves_from_card_id: "",
+              evolves_from_name: "",
+            }))}
             className={inputCls}
           >
             {["II", "III", "IV"].map(r => (
               <option key={r} value={r}>{r}</option>
+            ))}
+          </select>
+          <label className={labelCls + " mt-3"}>Evolui de</label>
+          <select
+            value={form.evolves_from_card_id || ""}
+            onChange={e => setEvolutionTarget(e.target.value)}
+            className={inputCls}
+          >
+            <option value="">Selecione a carta base</option>
+            {validEvolutionTargets.map(option => (
+              <option key={option.id} value={option.id}>{option.name}</option>
             ))}
           </select>
         </div>
@@ -295,6 +682,23 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
             </div>
           </div>
         )}
+
+        <div>
+          <label className={labelCls}>Imagem</label>
+          <label className="flex w-fit cursor-pointer items-center gap-2 rounded-lg bg-slate-800 px-4 py-2 hover:bg-slate-700">
+            <Upload size={14} />
+            <span className="text-sm">{uploading ? "Enviando..." : "Upload imagem"}</span>
+            <input type="file" accept="image/*" className="hidden" onChange={upload} disabled={uploading} />
+          </label>
+          {form.image_url && (
+            <div className="mt-2 flex items-center gap-2 text-xs text-slate-500">
+              Imagem carregada
+              <button type="button" onClick={() => set("image_url", "")} className="text-slate-400 hover:text-rose-400">
+                <X size={13} />
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* Habilidades */}
         <div>
@@ -369,6 +773,18 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
                     </div>
                   )}
                 </div>
+                <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <label className={labelCls + " mb-0"}>Efeitos da habilidade</label>
+                    <span className="text-[10px] text-slate-500">{normalizeEffects(ab.effects).length} adicionados</span>
+                  </div>
+                  <DynamicEffectControls
+                    effect={ab.effect_to_add || BLANK_EFFECT}
+                    onChange={(field, value) => updateAbilityEffectDraft(i, field, value)}
+                    onAdd={() => addAbilityEffect(i)}
+                  />
+                  <EffectsList effects={ab.effects} onRemove={effectIndex => removeAbilityEffect(i, effectIndex)} />
+                </div>
                 <textarea value={ab.description} onChange={e => updateAbility(i, "description", e.target.value)}
                   placeholder="Descrição" rows={2}
                   className={inputCls + " resize-none"} />
@@ -376,6 +792,49 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
             ))}
           </div>
         </div>
+
+        {["Item", "Mestre"].includes(form.card_type) && (
+          <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <label className={labelCls + " mb-0"}>Efeitos da carta</label>
+              <span className="text-[10px] text-slate-500">{normalizeEffects(form.effects).length} adicionados</span>
+            </div>
+            <DynamicEffectControls
+              effect={form.effect_to_add || BLANK_EFFECT}
+              onChange={(field, value) => updateEffectDraft("effect_to_add", field, value)}
+              onAdd={() => addCardEffect("effects", "effect_to_add", BLANK_EFFECT)}
+            />
+            <EffectsList effects={form.effects} onRemove={effectIndex => removeCardEffect("effects", effectIndex)} />
+          </div>
+        )}
+
+        {form.card_type === "Equipamento" && (
+          <div className="space-y-3">
+            <div>
+              <label className={labelCls}>Anexar em</label>
+              <select value={form.attach_to || "SELF_CHARACTER"} onChange={e => set("attach_to", e.target.value)} className={inputCls}>
+                <option value="SELF_CHARACTER">Seu personagem</option>
+              </select>
+            </div>
+            <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <label className={labelCls + " mb-0"}>Efeitos passivos</label>
+                <span className="text-[10px] text-slate-500">{normalizeEffects(form.passive_effects).length} adicionados</span>
+              </div>
+              <DynamicEffectControls
+                effect={form.passive_effect_to_add || BLANK_EFFECT}
+                onChange={(field, value) => updateEffectDraft("passive_effect_to_add", field, value)}
+                onAdd={() => addCardEffect("passive_effects", "passive_effect_to_add", {
+                  ...BLANK_EFFECT,
+                  type: EFFECT_TYPES.BUFF_EQUIPPED_CARD_DAMAGE,
+                  target: TARGETS.EQUIPPED_CARD,
+                  condition: EFFECT_CONDITIONS.EQUIPPED_CARD_DEALS_DAMAGE,
+                })}
+              />
+              <EffectsList effects={form.passive_effects} onRemove={effectIndex => removeCardEffect("passive_effects", effectIndex)} />
+            </div>
+          </div>
+        )}
 
         {/* Status */}
         <div>

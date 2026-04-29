@@ -55,6 +55,7 @@ class Effect(BaseModel):
     target: str = "OPPONENT_ACTIVE"
     duration: str = "INSTANT"
     amount: int = 0
+    attribute: Optional[str] = None
     energy_type: Optional[str] = None
     nature: Optional[str] = None
     card_name: Optional[str] = None
@@ -194,6 +195,7 @@ def normalize_card_payload(body: CardCreate) -> dict:
                 "target": effect.get("target") or "OPPONENT_ACTIVE",
                 "duration": effect.get("duration") or "INSTANT",
                 "amount": amount,
+                "attribute": effect.get("attribute") or None,
                 "energy_type": effect.get("energy_type") or None,
                 "nature": effect.get("nature") or None,
                 "card_name": effect.get("card_name") or None,
@@ -1057,6 +1059,10 @@ def _apply_online_action(state: dict, side: str, action: OnlineDuelAction) -> di
     player = next_state["players"][side]
     opponent = next_state["players"][_opponent_side(side)]
 
+    if action.kind == "forfeit" and next_state.get("phase") in ["setup", "battle"] and not next_state.get("winner"):
+        next_state["winner"] = _opponent_side(side)
+        return _with_duel_log(next_state, f"{player.get('name')} desistiu do duelo.")
+
     if action.kind == "setup_active" and next_state.get("phase") == "setup":
         card = player.get("hand", [])[action.hand_index or 0] if action.hand_index is not None and action.hand_index < len(player.get("hand", [])) else None
         if not _is_basic_character(card):
@@ -1156,11 +1162,30 @@ def _apply_online_action(state: dict, side: str, action: OnlineDuelAction) -> di
 async def list_online_duel_players(request: Request):
     user = await get_current_user(request, db)
     await touch_user_presence(user["id"])
+    active_statuses = ["invited", "deck_selection", "setup", "battle"]
+    active_duels = await db.online_duels.find(
+        {"status": {"$in": active_statuses}},
+        {"_id": 0, "players": 1}
+    ).to_list(1000)
+    busy_user_ids = {
+        player.get("user_id")
+        for duel in active_duels
+        for player in duel.get("players", {}).values()
+        if player.get("user_id") and player.get("user_id") != user["id"]
+    }
     users = await db.users.find(
         {"id": {"$ne": user["id"]}},
         {"_id": 0, "password_hash": 0}
     ).sort("name", 1).to_list(500)
-    return [_public_user(other) for other in users if is_online(other.get("last_seen"))]
+    result = []
+    for other in users:
+        if not is_online(other.get("last_seen")):
+            continue
+        public = _public_user(other)
+        public["in_duel"] = other["id"] in busy_user_ids
+        public["duel_status"] = "em_duelo" if public["in_duel"] else "disponivel"
+        result.append(public)
+    return result
 
 
 @api_router.get("/duels/online")
@@ -1185,6 +1210,15 @@ async def invite_online_duel(body: OnlineDuelInviteCreate, request: Request):
         raise HTTPException(status_code=404, detail="Jogador nao encontrado")
     if not is_online(opponent.get("last_seen")):
         raise HTTPException(status_code=400, detail="Jogador nao esta online")
+    opponent_busy = await db.online_duels.find_one({
+        "status": {"$in": ["invited", "deck_selection", "setup", "battle"]},
+        "$or": [
+            {"players.p1.user_id": opponent["id"]},
+            {"players.p2.user_id": opponent["id"]},
+        ],
+    })
+    if opponent_busy:
+        raise HTTPException(status_code=400, detail="Jogador ja esta em duelo")
 
     existing = await db.online_duels.find_one({
         "status": {"$in": ["invited", "deck_selection", "setup", "battle"]},
@@ -1235,7 +1269,7 @@ async def accept_online_duel(duel_id: str, request: Request):
 async def decline_online_duel(duel_id: str, request: Request):
     user = await get_current_user(request, db)
     duel = await _get_online_duel_for_user(duel_id, user["id"])
-    if duel.get("status") not in ["invited", "deck_selection"]:
+    if duel.get("status") not in ["invited", "deck_selection", "setup"]:
         raise HTTPException(status_code=400, detail="Este duelo ja iniciou")
     await db.online_duels.update_one(
         {"id": duel_id},

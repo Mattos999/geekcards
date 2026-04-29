@@ -33,8 +33,143 @@ const BLANK_EFFECT = {
   target: TARGETS.OPPONENT_ACTIVE,
   duration: DURATIONS.INSTANT,
   amount: 0,
+  attribute: "",
   energy_type: "",
+  nature: "",
+  card_name: "",
+  tag: "",
   condition: EFFECT_CONDITIONS.ALWAYS,
+};
+
+const EFFECT_ATTRIBUTES = [
+  { value: "hp", label: "HP" },
+  { value: "damage", label: "Dano" },
+  { value: "recuo", label: "Recuo" },
+  { value: "cura", label: "Cura" },
+];
+
+const DEFAULT_EFFECT_FIELDS = ["target", "duration", "condition", "amount"];
+
+const EFFECT_FIELD_CONFIG = {
+  [EFFECT_TYPES.DAMAGE]: ["target", "amount"],
+  [EFFECT_TYPES.DAMAGE_RANDOM_TARGETS]: ["target", "amount"],
+  [EFFECT_TYPES.DAMAGE_ANY_TARGET]: ["target", "amount"],
+  [EFFECT_TYPES.DAMAGE_ACTIVE_AND_BENCH]: ["amount"],
+  [EFFECT_TYPES.DAMAGE_ALL_OPPONENT_BENCH]: ["amount"],
+  [EFFECT_TYPES.DAMAGE_SELF]: ["amount"],
+  [EFFECT_TYPES.DAMAGE_EXTRA_BY_ENERGY]: ["target", "amount"],
+  [EFFECT_TYPES.DAMAGE_EXTRA_BY_BENCH_CARD]: ["target", "card_name", "nature", "amount"],
+  [EFFECT_TYPES.DAMAGE_EXTRA_BY_TARGET_TYPE]: ["target", "nature", "amount", "duration"],
+  [EFFECT_TYPES.DAMAGE_EXTRA_BY_DICE]: ["target", "amount"],
+  [EFFECT_TYPES.DAMAGE_EXTRA_BY_COIN]: ["target", "amount"],
+  [EFFECT_TYPES.DAMAGE_CONSECUTIVE_STACK]: ["target", "amount"],
+  [EFFECT_TYPES.DAMAGE_SPLIT]: ["target", "amount"],
+  [EFFECT_TYPES.DAMAGE_TO_PREVIOUSLY_DAMAGED_BENCH]: ["amount"],
+  [EFFECT_TYPES.HEAL]: ["target", "amount"],
+  [EFFECT_TYPES.HEAL_SELF]: ["amount"],
+  [EFFECT_TYPES.HEAL_ACTIVE]: ["amount"],
+  [EFFECT_TYPES.HEAL_BENCH]: ["target", "amount"],
+  [EFFECT_TYPES.HEAL_ANY_SELF_CARD]: ["target", "amount"],
+  [EFFECT_TYPES.HEAL_EQUIPPED_CARD]: ["amount"],
+  [EFFECT_TYPES.HEAL_BY_DAMAGE_DEALT]: ["target", "amount"],
+  [EFFECT_TYPES.HEAL_ALLY_ON_DAMAGE]: ["target", "amount"],
+  [EFFECT_TYPES.HEAL_PER_TURN]: ["target", "amount", "duration"],
+  [EFFECT_TYPES.ADD_ENERGY]: ["target", "amount"],
+  [EFFECT_TYPES.ADD_TYPED_ENERGY]: ["target", "energy_type", "amount"],
+  [EFFECT_TYPES.ADD_ENERGY_TO_ACTIVE]: ["amount"],
+  [EFFECT_TYPES.ADD_ENERGY_TO_BENCH]: ["target", "amount"],
+  [EFFECT_TYPES.ADD_ENERGY_BY_COIN]: ["target", "energy_type", "amount"],
+  [EFFECT_TYPES.ADD_ENERGY_BY_DAMAGE_TAKEN]: ["target", "energy_type", "amount"],
+  [EFFECT_TYPES.ADD_ENERGY_ON_ATTACK]: ["target", "energy_type", "amount"],
+  [EFFECT_TYPES.ADD_MULTIPLE_ENERGY]: ["target", "energy_type", "amount"],
+  [EFFECT_TYPES.REMOVE_ENERGY]: ["target", "amount"],
+  [EFFECT_TYPES.REMOVE_RANDOM_ENERGY]: ["target", "amount"],
+  [EFFECT_TYPES.MOVE_ENERGY]: ["target", "amount"],
+  [EFFECT_TYPES.MOVE_ALL_ENERGY_FROM_BENCH_TO_ACTIVE]: ["target"],
+  [EFFECT_TYPES.DISCARD_OWN_ENERGY]: ["target", "amount"],
+  [EFFECT_TYPES.ENERGY_ANY_TYPE]: ["target", "duration"],
+  [EFFECT_TYPES.ENERGY_COST_REDUCTION]: ["target", "amount", "duration"],
+  [EFFECT_TYPES.ENERGY_REQUIRED_TYPE]: ["target", "energy_type", "duration"],
+  [EFFECT_TYPES.DRAW_CARD]: ["amount"],
+  [EFFECT_TYPES.DRAW_MULTIPLE]: ["amount"],
+  [EFFECT_TYPES.SEARCH_RANDOM_BASIC]: ["amount"],
+  [EFFECT_TYPES.LOOK_TOP_DECK]: ["amount"],
+  [EFFECT_TYPES.REVEAL_OPPONENT_HAND]: [],
+  [EFFECT_TYPES.REVEAL_ONE_CARD]: ["target"],
+  [EFFECT_TYPES.SHUFFLE_OPPONENT_HAND]: [],
+  [EFFECT_TYPES.OPPONENT_DRAWS_RANDOM]: ["amount"],
+  [EFFECT_TYPES.SWAP_HAND_CARD_RANDOM]: [],
+  [EFFECT_TYPES.FORCE_OPPONENT_SWAP_CARD]: ["amount"],
+  [EFFECT_TYPES.RETURN_CARD_TO_DECK]: ["target"],
+  [EFFECT_TYPES.RESURRECT_TO_DECK]: ["target", "card_name"],
+  [EFFECT_TYPES.RESURRECT_FROM_DISCARD]: ["target", "card_name"],
+  [EFFECT_TYPES.DISCARD_CARD]: ["target", "amount"],
+  [EFFECT_TYPES.SWITCH_ACTIVE]: ["target"],
+  [EFFECT_TYPES.SWITCH_OWN_ACTIVE]: [],
+  [EFFECT_TYPES.SWITCH_OPPONENT_ACTIVE]: [],
+  [EFFECT_TYPES.FORCE_SWITCH_OPPONENT_ACTIVE]: [],
+  [EFFECT_TYPES.OPPONENT_CHOOSES_NEW_ACTIVE]: [],
+  [EFFECT_TYPES.IGNORE_RETREAT_COST]: ["target", "duration"],
+  [EFFECT_TYPES.REDUCE_RETREAT_COST]: ["target", "amount", "duration"],
+  [EFFECT_TYPES.BLOCK_RETREAT]: ["target", "duration"],
+  [EFFECT_TYPES.ATTACK_FROM_BENCH]: ["target", "duration"],
+  [EFFECT_TYPES.PROMOTE_FROM_BENCH]: ["target"],
+  [EFFECT_TYPES.SUMMON_FROM_BENCH]: ["target"],
+  [EFFECT_TYPES.RESCUE_ACTIVE]: ["target"],
+  [EFFECT_TYPES.BURN]: ["target", "duration"],
+  [EFFECT_TYPES.PARALYZE]: ["target", "duration"],
+  [EFFECT_TYPES.FREEZE]: ["target", "duration"],
+  [EFFECT_TYPES.CONFUSE]: ["target", "duration"],
+  [EFFECT_TYPES.PREVENT_ATTACK]: ["target", "duration"],
+  [EFFECT_TYPES.PREVENT_RETREAT]: ["target", "duration"],
+  [EFFECT_TYPES.SKIP_NEXT_ATTACK]: ["target", "duration"],
+  [EFFECT_TYPES.CANNOT_USE_SAME_ATTACK_NEXT_TURN]: ["target", "duration"],
+  [EFFECT_TYPES.BUFF_DAMAGE]: ["target", "amount", "duration"],
+  [EFFECT_TYPES.BUFF_DAMAGE_THIS_TURN]: ["target", "amount"],
+  [EFFECT_TYPES.BUFF_DAMAGE_NEXT_TURN]: ["target", "amount"],
+  [EFFECT_TYPES.BUFF_EQUIPPED_CARD_DAMAGE]: ["target", "amount", "condition"],
+  [EFFECT_TYPES.BUFF_DAMAGE_BY_TAG]: ["target", "tag", "amount", "duration"],
+  [EFFECT_TYPES.BUFF_DAMAGE_BY_ATTACHED_ENERGY]: ["target", "energy_type", "amount", "duration"],
+  [EFFECT_TYPES.BUFF_BASE_ATTRIBUTES]: ["target", "attribute", "amount", "duration"],
+  [EFFECT_TYPES.INCREASE_MAX_HP]: ["target", "amount", "duration"],
+  [EFFECT_TYPES.BUFF_HEAL_AMOUNT]: ["target", "amount", "duration"],
+  [EFFECT_TYPES.DOUBLE_DAMAGE_AGAINST_TYPE]: ["target", "nature", "duration"],
+  [EFFECT_TYPES.WEAKNESS_OVERRIDE]: ["target", "nature", "duration"],
+  [EFFECT_TYPES.ALPHA_POINT_OVERRIDE]: ["target", "amount", "duration"],
+  [EFFECT_TYPES.REDUCE_DAMAGE]: ["target", "amount", "duration"],
+  [EFFECT_TYPES.REDUCE_NEXT_DAMAGE]: ["target", "amount"],
+  [EFFECT_TYPES.HALVE_DAMAGE_TAKEN]: ["target", "duration"],
+  [EFFECT_TYPES.PREVENT_DAMAGE]: ["target", "duration"],
+  [EFFECT_TYPES.IMMUNE_TO_DAMAGE_TYPE]: ["target", "nature", "duration"],
+  [EFFECT_TYPES.IMMUNE_TO_NEGATIVE_EFFECTS]: ["target", "duration"],
+  [EFFECT_TYPES.IGNORE_TOOL_EFFECTS]: ["target", "duration"],
+  [EFFECT_TYPES.REFLECT_DAMAGE]: ["target", "amount", "duration"],
+  [EFFECT_TYPES.REFLECT_DOUBLE_DAMAGE]: ["target", "duration"],
+  [EFFECT_TYPES.REDIRECT_DAMAGE]: ["target", "duration"],
+  [EFFECT_TYPES.SHARE_DAMAGE]: ["target", "duration"],
+  [EFFECT_TYPES.COIN_FLIP]: [],
+  [EFFECT_TYPES.DICE_ROLL]: [],
+  [EFFECT_TYPES.IF_DICE_GREATER_THAN]: ["amount"],
+  [EFFECT_TYPES.IF_DICE_LESS_THAN]: ["amount"],
+  [EFFECT_TYPES.IF_TARGET_NATURE]: ["target", "nature"],
+  [EFFECT_TYPES.IF_TARGET_TAG]: ["target", "tag"],
+  [EFFECT_TYPES.IF_SELF_HAS_ENERGY_COUNT]: ["energy_type", "amount"],
+  [EFFECT_TYPES.IF_BENCH_HAS_CARD]: ["card_name"],
+  [EFFECT_TYPES.IF_BENCH_COUNT_BY_NATURE]: ["nature", "amount"],
+  [EFFECT_TYPES.IF_HAS_TOOL_ATTACHED]: ["target"],
+  [EFFECT_TYPES.IF_CARD_WAS_ATTACKED]: ["target"],
+  [EFFECT_TYPES.IF_CARD_KNOCKED_OUT]: ["target"],
+  [EFFECT_TYPES.ON_ATTACK]: ["target"],
+  [EFFECT_TYPES.ON_DAMAGE_TAKEN]: ["target"],
+  [EFFECT_TYPES.ON_ENERGY_ATTACHED]: ["target", "energy_type"],
+  [EFFECT_TYPES.ON_KNOCKOUT]: ["target"],
+  [EFFECT_TYPES.ON_TURN_START]: ["target"],
+  [EFFECT_TYPES.ON_TURN_END]: ["target"],
+  [EFFECT_TYPES.COPY_OPPONENT_ITEM]: ["target"],
+  [EFFECT_TYPES.TRANSFORM_INTO_OPPONENT_BENCH_CARD]: ["target"],
+  [EFFECT_TYPES.ABSORB_OWN_BENCH_CARD]: ["target"],
+  [EFFECT_TYPES.CREATE_TEMPORARY_UNIT]: ["card_name", "amount", "duration"],
+  [EFFECT_TYPES.PLAY_ITEM_AS_UNIT]: ["target", "duration"],
 };
 
 const getEvolutionStage = card => {
@@ -43,60 +178,143 @@ const getEvolutionStage = card => {
   return stages[String(card.evolution_number || "II").toUpperCase()] || 2;
 };
 
-const EffectControls = ({ effect, onChange, onAdd }) => (
-  <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_1fr_1fr_5rem_auto]">
-    <select
-      value={effect.type}
-      onChange={e => onChange("type", e.target.value)}
-      className="min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
-    >
-      {Object.values(EFFECT_TYPES).map(type => (
-        <option key={type} value={type}>{effectTypeLabel(type)}</option>
-      ))}
-    </select>
-    <select
-      value={effect.target}
-      onChange={e => onChange("target", e.target.value)}
-      className="min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
-    >
-      {Object.values(TARGETS).map(target => (
-        <option key={target} value={target}>{TARGET_LABELS[target]}</option>
-      ))}
-    </select>
-    <select
-      value={effect.duration || DURATIONS.INSTANT}
-      onChange={e => onChange("duration", e.target.value)}
-      className="min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
-    >
-      {Object.values(DURATIONS).map(duration => (
-        <option key={duration} value={duration}>{DURATION_LABELS[duration]}</option>
-      ))}
-    </select>
-    <select
-      value={effect.condition || EFFECT_CONDITIONS.ALWAYS}
-      onChange={e => onChange("condition", e.target.value)}
-      className="min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
-    >
-      {Object.values(EFFECT_CONDITIONS).map(condition => (
-        <option key={condition || "ALWAYS"} value={condition}>{EFFECT_CONDITION_LABELS[condition]}</option>
-      ))}
-    </select>
-    <input
-      type="number"
-      min={0}
-      value={effect.amount}
-      onChange={e => onChange("amount", e.target.value)}
-      className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:outline-none"
-    />
-    <button
-      type="button"
-      onClick={onAdd}
-      className="inline-flex items-center justify-center rounded-lg border border-indigo-500/40 bg-indigo-500/20 px-3 text-xs text-indigo-200 hover:bg-indigo-500/30"
-    >
-      <Plus size={13} />
-    </button>
-  </div>
-);
+const EffectControls = ({ effect, onChange, onAdd }) => {
+  const fields = EFFECT_FIELD_CONFIG[effect.type] ?? DEFAULT_EFFECT_FIELDS;
+  const inputCls = "min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none";
+  const show = field => fields.includes(field);
+
+  const fieldLabels = {
+    amount: effect.type?.startsWith("DAMAGE") ? "Dano / valor" : "Valor",
+    attribute: "Atributo",
+    card_name: "Nome da carta",
+    condition: "Condição",
+    duration: "Duração",
+    energy_type: "Energia",
+    nature: "Natureza",
+    tag: "Marcador",
+    target: "Alvo",
+  };
+
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="min-w-[18rem] flex-[2_1_24rem]">
+          <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Efeito</span>
+          <select
+            value={effect.type}
+            onChange={e => onChange("type", e.target.value)}
+            className={inputCls}
+          >
+            {Object.values(EFFECT_TYPES).map(type => (
+              <option key={type} value={type}>{effectTypeLabel(type)}</option>
+            ))}
+          </select>
+        </label>
+
+        {show("target") && (
+          <label className="min-w-[11rem] flex-[1_1_13rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">{fieldLabels.target}</span>
+            <select value={effect.target || TARGETS.OPPONENT_ACTIVE} onChange={e => onChange("target", e.target.value)} className={inputCls}>
+              {Object.values(TARGETS).map(target => (
+                <option key={target} value={target}>{TARGET_LABELS[target]}</option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        {show("nature") && (
+          <label className="min-w-[11rem] flex-[1_1_13rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">{fieldLabels.nature}</span>
+            <select value={effect.nature || ""} onChange={e => onChange("nature", e.target.value)} className={inputCls}>
+              <option value="">Qualquer</option>
+              {NATURES.map(nature => <option key={nature} value={nature}>{nature}</option>)}
+            </select>
+          </label>
+        )}
+
+        {show("energy_type") && (
+          <label className="min-w-[11rem] flex-[1_1_13rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">{fieldLabels.energy_type}</span>
+            <select value={effect.energy_type || ""} onChange={e => onChange("energy_type", e.target.value)} className={inputCls}>
+              <option value="">Qualquer</option>
+              {ENERGY_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
+            </select>
+          </label>
+        )}
+
+        {show("attribute") && (
+          <label className="min-w-[11rem] flex-[1_1_13rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">{fieldLabels.attribute}</span>
+            <select value={effect.attribute || ""} onChange={e => onChange("attribute", e.target.value)} className={inputCls}>
+              <option value="">Selecione</option>
+              {EFFECT_ATTRIBUTES.map(attribute => (
+                <option key={attribute.value} value={attribute.value}>{attribute.label}</option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        {show("card_name") && (
+          <label className="min-w-[14rem] flex-[1_1_16rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">{fieldLabels.card_name}</span>
+            <input value={effect.card_name || ""} onChange={e => onChange("card_name", e.target.value)} className={inputCls} placeholder="Ex: Guardião" />
+          </label>
+        )}
+
+        {show("tag") && (
+          <label className="min-w-[14rem] flex-[1_1_16rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">{fieldLabels.tag}</span>
+            <input value={effect.tag || ""} onChange={e => onChange("tag", e.target.value)} className={inputCls} placeholder="Ex: dragão" />
+          </label>
+        )}
+
+        {show("amount") && (
+          <label className="min-w-[11rem] flex-[1_1_13rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">{fieldLabels.amount}</span>
+            <input
+              type="number"
+              min={0}
+              value={effect.amount ?? 0}
+              onChange={e => onChange("amount", e.target.value)}
+              className={`${inputCls} font-mono`}
+            />
+          </label>
+        )}
+
+        {show("duration") && (
+          <label className="min-w-[11rem] flex-[1_1_13rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">{fieldLabels.duration}</span>
+            <select value={effect.duration || DURATIONS.INSTANT} onChange={e => onChange("duration", e.target.value)} className={inputCls}>
+              {Object.values(DURATIONS).map(duration => (
+                <option key={duration} value={duration}>{DURATION_LABELS[duration]}</option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        {show("condition") && (
+          <label className="min-w-[11rem] flex-[1_1_13rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">{fieldLabels.condition}</span>
+            <select value={effect.condition || EFFECT_CONDITIONS.ALWAYS} onChange={e => onChange("condition", e.target.value)} className={inputCls}>
+              {Object.values(EFFECT_CONDITIONS).map(condition => (
+                <option key={condition || "ALWAYS"} value={condition}>{EFFECT_CONDITION_LABELS[condition]}</option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        <button
+          type="button"
+          onClick={onAdd}
+          className="mt-2 inline-flex h-10 basis-full items-center justify-center rounded-lg border border-indigo-500/40 bg-indigo-500/20 px-3 text-xs text-indigo-200 hover:bg-indigo-500/30 sm:max-w-44"
+          aria-label="Adicionar efeito"
+        >
+          <Plus size={13} />
+        </button>
+      </div>
+    </div>
+  );
+};
 
 const EffectsList = ({ effects, onRemove }) => (
   normalizeEffects(effects).length > 0 && (

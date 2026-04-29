@@ -343,6 +343,7 @@ export const normalizeEffects = effects => (
           target: effect.target || TARGETS.OPPONENT_ACTIVE,
           duration: effect.duration || DURATIONS.INSTANT,
           amount: Math.max(0, parseInt(effect.amount, 10) || 0),
+          attribute: effect.attribute || "",
           energy_type: effect.energy_type || "",
           nature: effect.nature || "",
           card_name: effect.card_name || "",
@@ -358,5 +359,13 @@ export const effectSummary = effect => {
   const duration = effect.duration && effect.duration !== DURATIONS.INSTANT ? ` (${durationLabel(effect.duration)})` : "";
   const condition = effect.condition ? ` | ${conditionLabel(effect.condition)}` : "";
   const amount = effect.amount ? ` ${effect.amount}` : "";
-  return `${type}${amount} - ${target}${duration}${condition}`;
+  const details = [
+    effect.nature,
+    effect.energy_type,
+    effect.attribute,
+    effect.card_name,
+    effect.tag,
+  ].filter(Boolean);
+  const extra = details.length ? ` | ${details.join(" / ")}` : "";
+  return `${type}${amount} - ${target}${duration}${condition}${extra}`;
 };
