@@ -7,6 +7,8 @@ load_dotenv(ROOT_DIR / '.env')
 import os
 import uuid
 import logging
+import random
+import copy
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
@@ -143,6 +145,27 @@ class Deck(DeckCreate):
     user_id: str
     created_at: str
     updated_at: str
+
+
+class OnlineDuelInviteCreate(BaseModel):
+    opponent_id: str
+
+
+class OnlineDuelDeckChoice(BaseModel):
+    deck_id: str
+
+
+class OnlineDuelSetupReady(BaseModel):
+    ready: bool = True
+
+
+class OnlineDuelAction(BaseModel):
+    kind: str
+    hand_index: Optional[int] = None
+    bench_index: Optional[int] = None
+    zone: Optional[str] = None
+    target_index: int = 0
+    ability_index: Optional[int] = None
 
 
 def normalize_card_payload(body: CardCreate) -> dict:
@@ -748,6 +771,570 @@ async def admin_delete_card(
     return {"ok": True}
 
 
+# ============ Online duel helpers ============
+ONLINE_DUEL_HAND_SIZE = 5
+ONLINE_DUEL_BENCH_LIMIT = 3
+ONLINE_DUEL_POINTS_TO_WIN = 3
+ONLINE_DUEL_ENERGY_PER_TURN = 1
+
+
+def _duel_side_for_user(duel: dict, user_id: str) -> Optional[str]:
+    for side in ["p1", "p2"]:
+        if duel.get("players", {}).get(side, {}).get("user_id") == user_id:
+            return side
+    return None
+
+
+def _opponent_side(side: str) -> str:
+    return "p2" if side == "p1" else "p1"
+
+
+def _new_card_instance(card: dict, turn_number: int) -> dict:
+    instance = copy.deepcopy(card)
+    instance["instance_id"] = str(uuid.uuid4())
+    instance["hp_remaining"] = max(0, int(instance.get("hp") or 0))
+    instance["attached_energy"] = []
+    instance["equipments"] = []
+    instance["entered_turn"] = turn_number
+    return instance
+
+
+def _to_hand_card(card: Optional[dict]) -> Optional[dict]:
+    if not card:
+        return card
+    next_card = copy.deepcopy(card)
+    for key in [
+        "instance_id", "hp_remaining", "attached_energy", "equipments",
+        "pending_damage_reduction", "next_damage_multiplier", "entered_turn",
+        "evolved_from", "status_effects", "last_used_ability_name",
+    ]:
+        next_card.pop(key, None)
+    return next_card
+
+
+def _is_basic_character(card: Optional[dict]) -> bool:
+    return bool(card and card.get("card_type") == "Personagem" and not card.get("is_evolution"))
+
+
+def _normalize_energy_types(energy_types: list[str]) -> list[str]:
+    valid = [energy for energy in energy_types or [] if energy in ENERGY_TYPES]
+    return valid or ["Universal"]
+
+
+def _random_energy(energy_types: list[str]) -> str:
+    return random.choice(_normalize_energy_types(energy_types))
+
+
+def _shuffle_opening_deck(cards: list[dict]) -> list[dict]:
+    best = copy.deepcopy(cards)
+    random.shuffle(best)
+    for _ in range(30):
+        deck = copy.deepcopy(cards)
+        random.shuffle(deck)
+        if any(_is_basic_character(card) for card in deck[:ONLINE_DUEL_HAND_SIZE]):
+            return deck
+        best = deck
+    return best
+
+
+def _draw_cards(player: dict, amount: int = 1) -> dict:
+    next_player = copy.deepcopy(player)
+    for _ in range(amount):
+        if next_player.get("deck"):
+            next_player.setdefault("hand", []).append(next_player["deck"].pop(0))
+    return next_player
+
+
+def _make_duel_player(name: str, cards: list[dict], energy_types: list[str], turn_number: int) -> dict:
+    energies = _normalize_energy_types(energy_types)
+    player = {
+        "name": name,
+        "deck": _shuffle_opening_deck(cards),
+        "hand": [],
+        "discard": [],
+        "active": None,
+        "bench": [],
+        "points": 0,
+        "energy_types": energies,
+        "energy_zone": {"current": _random_energy(energies), "next": _random_energy(energies)},
+        "energy_remaining": ONLINE_DUEL_ENERGY_PER_TURN,
+        "setup_ready": False,
+    }
+    return _draw_cards(player, ONLINE_DUEL_HAND_SIZE)
+
+
+async def _expand_owned_deck(user_id: str, deck_id: str) -> tuple[dict, list[dict], list[str]]:
+    deck = await db.decks.find_one({"id": deck_id, "user_id": user_id}, {"_id": 0})
+    if not deck:
+        raise HTTPException(status_code=404, detail="Deck nao encontrado")
+    deck["energy_types"] = _normalize_energy_types(deck.get("energy_types", []))
+    unique_ids = list(set(deck.get("card_ids", [])))
+    cards = []
+    if unique_ids:
+        cards = await db.cards.find({"id": {"$in": unique_ids}, "user_id": user_id}, {"_id": 0}).to_list(500)
+    cards_by_id = {card["id"]: card for card in cards}
+    expanded = [cards_by_id[cid] for cid in deck.get("card_ids", []) if cid in cards_by_id]
+    return deck, expanded, _validate_deck_rules(deck.get("card_ids", []), cards_by_id)
+
+
+def _validate_online_deck(cards: list[dict], warnings: list[str]) -> None:
+    if len(cards) != 20:
+        raise HTTPException(status_code=400, detail="Deck de duelo precisa ter exatamente 20 cartas")
+    blocking = [warning for warning in warnings if "energia vem da Energy Zone" in warning or "maximo 2" in warning or "mÃ¡ximo 2" in warning]
+    if blocking:
+        raise HTTPException(status_code=400, detail=blocking[0])
+    if not any(_is_basic_character(card) for card in cards):
+        raise HTTPException(status_code=400, detail="Deck precisa ter pelo menos uma carta basica")
+
+
+def _public_user(user: dict) -> dict:
+    return {
+        "id": user["id"],
+        "name": user.get("name", ""),
+        "email": user.get("email", ""),
+        "role": user.get("role", "user"),
+        "last_seen": user.get("last_seen"),
+        "is_online": is_online(user.get("last_seen")),
+    }
+
+
+def _sanitize_player_for_view(player: dict, reveal_hand: bool) -> dict:
+    visible = copy.deepcopy(player)
+    visible["deck_count"] = len(visible.get("deck", []))
+    visible["discard_count"] = len(visible.get("discard", []))
+    visible.pop("deck", None)
+    if not reveal_hand:
+        visible["hand_count"] = len(visible.get("hand", []))
+        visible["hand"] = [None for _ in visible.get("hand", [])]
+    return visible
+
+
+def _online_duel_view(duel: dict, user_id: str) -> dict:
+    side = _duel_side_for_user(duel, user_id)
+    if not side:
+        raise HTTPException(status_code=404, detail="Duelo nao encontrado")
+    opp = _opponent_side(side)
+    state = duel.get("state")
+    visible_state = None
+    if state:
+        visible_state = copy.deepcopy(state)
+        visible_state["turn"] = "player" if state.get("turn") == side else "opponent"
+        if state.get("winner"):
+            visible_state["winner"] = "player" if state.get("winner") == side else "opponent"
+        visible_state["players"] = {
+            "player": _sanitize_player_for_view(state["players"][side], True),
+            "opponent": _sanitize_player_for_view(state["players"][opp], False),
+        }
+    result = copy.deepcopy(duel)
+    result.pop("_id", None)
+    result["my_side"] = side
+    result["opponent_side"] = opp
+    result["me"] = result.get("players", {}).get(side, {})
+    result["opponent"] = result.get("players", {}).get(opp, {})
+    result["state"] = visible_state
+    return result
+
+
+async def _get_online_duel_for_user(duel_id: str, user_id: str) -> dict:
+    duel = await db.online_duels.find_one({"id": duel_id})
+    if not duel or not _duel_side_for_user(duel, user_id):
+        raise HTTPException(status_code=404, detail="Duelo nao encontrado")
+    return duel
+
+
+def _with_duel_log(state: dict, message: str) -> dict:
+    next_state = copy.deepcopy(state)
+    next_state["log"] = [message, *(next_state.get("log") or [])][:30]
+    return next_state
+
+
+def _target_card(player: dict, zone: str, index: int = 0) -> Optional[dict]:
+    if zone == "active":
+        return player.get("active")
+    return (player.get("bench") or [None])[index] if index < len(player.get("bench") or []) else None
+
+
+def _set_target_card(player: dict, zone: str, index: int, card: dict) -> dict:
+    next_player = copy.deepcopy(player)
+    if zone == "active":
+        next_player["active"] = card
+    elif index < len(next_player.get("bench", [])):
+        next_player["bench"][index] = card
+    return next_player
+
+
+def _promote_if_needed(player: dict) -> dict:
+    next_player = copy.deepcopy(player)
+    if not next_player.get("active") and next_player.get("bench"):
+        next_player["active"] = next_player["bench"].pop(0)
+    return next_player
+
+
+def _check_online_winner(state: dict) -> dict:
+    next_state = copy.deepcopy(state)
+    p1 = next_state["players"]["p1"]
+    p2 = next_state["players"]["p2"]
+    if p1.get("points", 0) >= ONLINE_DUEL_POINTS_TO_WIN:
+        next_state["winner"] = "p1"
+    elif p2.get("points", 0) >= ONLINE_DUEL_POINTS_TO_WIN:
+        next_state["winner"] = "p2"
+    elif not p1.get("active") and not p1.get("bench"):
+        next_state["winner"] = "p2"
+    elif not p2.get("active") and not p2.get("bench"):
+        next_state["winner"] = "p1"
+    return next_state
+
+
+def _knockout_points(card: Optional[dict]) -> int:
+    if not card:
+        return 1
+    try:
+        explicit = int(card.get("knockout_points") or card.get("point_value") or card.get("points") or 0)
+    except (TypeError, ValueError):
+        explicit = 0
+    return explicit if explicit > 0 else (2 if card.get("is_alpha") else 1)
+
+
+def _resolve_online_knockouts(state: dict, attacking_side: str) -> dict:
+    next_state = copy.deepcopy(state)
+    defender_side = _opponent_side(attacking_side)
+    for side, opponent in [(attacking_side, defender_side), (defender_side, attacking_side)]:
+        owner = next_state["players"][side]
+        scorer = next_state["players"][opponent]
+        active = owner.get("active")
+        if active and active.get("hp_remaining", 0) <= 0:
+            owner.setdefault("discard", []).append(active)
+            scorer["points"] = scorer.get("points", 0) + _knockout_points(active)
+            owner["active"] = None
+            next_state = _with_duel_log(next_state, f"{active.get('name')} foi nocauteado.")
+        bench = []
+        for card in owner.get("bench", []):
+            if card and card.get("hp_remaining", 0) <= 0:
+                owner.setdefault("discard", []).append(card)
+                scorer["points"] = scorer.get("points", 0) + _knockout_points(card)
+                next_state = _with_duel_log(next_state, f"{card.get('name')} foi nocauteado.")
+            else:
+                bench.append(card)
+        owner["bench"] = bench
+        next_state["players"][side] = _promote_if_needed(owner)
+        next_state["players"][opponent] = scorer
+    return _check_online_winner(next_state)
+
+
+def _finish_online_turn(state: dict) -> dict:
+    if state.get("phase") != "battle" or state.get("winner"):
+        return state
+    next_state = copy.deepcopy(state)
+    next_side = _opponent_side(next_state["turn"])
+    if next_state["turn"] == "p2":
+        next_state["turn_number"] = next_state.get("turn_number", 1) + 1
+    next_state["turn"] = next_side
+    player = next_state["players"][next_side]
+    player = _draw_cards(player, 1)
+    player["energy_zone"] = {
+        "current": player.get("energy_zone", {}).get("next") or _random_energy(player.get("energy_types", [])),
+        "next": _random_energy(player.get("energy_types", [])),
+    }
+    player["energy_remaining"] = ONLINE_DUEL_ENERGY_PER_TURN
+    next_state["players"][next_side] = player
+    return _with_duel_log(next_state, f"Turno de {player.get('name')}.")
+
+
+def _ability_damage(ability: dict) -> int:
+    for effect in ability.get("effects") or []:
+        if effect.get("type") == "DAMAGE":
+            return max(0, int(effect.get("amount") or 0))
+    return max(0, int(ability.get("damage") or 0))
+
+
+def _can_pay_online_ability(card: dict, ability: dict) -> bool:
+    cost = max(0, int(ability.get("energy_cost") or 0))
+    return len(card.get("attached_energy") or []) >= cost
+
+
+def _apply_online_action(state: dict, side: str, action: OnlineDuelAction) -> dict:
+    next_state = copy.deepcopy(state)
+    player = next_state["players"][side]
+    opponent = next_state["players"][_opponent_side(side)]
+
+    if action.kind == "setup_active" and next_state.get("phase") == "setup":
+        card = player.get("hand", [])[action.hand_index or 0] if action.hand_index is not None and action.hand_index < len(player.get("hand", [])) else None
+        if not _is_basic_character(card):
+            return state
+        if player.get("active"):
+            player.setdefault("hand", []).append(_to_hand_card(player["active"]))
+        player["active"] = _new_card_instance(card, next_state.get("turn_number", 1))
+        player["hand"].pop(action.hand_index)
+        player["setup_ready"] = False
+        next_state["players"][side] = player
+        return _with_duel_log(next_state, f"{player.get('name')} escolheu a ativa.")
+
+    if action.kind == "setup_to_bench" and next_state.get("phase") == "setup":
+        card = player.get("hand", [])[action.hand_index or 0] if action.hand_index is not None and action.hand_index < len(player.get("hand", [])) else None
+        if not _is_basic_character(card) or len(player.get("bench", [])) >= ONLINE_DUEL_BENCH_LIMIT:
+            return state
+        player.setdefault("bench", []).append(_new_card_instance(card, next_state.get("turn_number", 1)))
+        player["hand"].pop(action.hand_index)
+        player["setup_ready"] = False
+        next_state["players"][side] = player
+        return _with_duel_log(next_state, f"{player.get('name')} colocou uma carta no banco inicial.")
+
+    if action.kind == "setup_bench_to_hand" and next_state.get("phase") == "setup":
+        if action.bench_index is None or action.bench_index >= len(player.get("bench", [])):
+            return state
+        card = player["bench"].pop(action.bench_index)
+        player.setdefault("hand", []).append(_to_hand_card(card))
+        player["setup_ready"] = False
+        next_state["players"][side] = player
+        return next_state
+
+    if next_state.get("phase") != "battle" or next_state.get("winner") or next_state.get("turn") != side:
+        return state
+
+    if action.kind == "play_to_bench":
+        card = player.get("hand", [])[action.hand_index or 0] if action.hand_index is not None and action.hand_index < len(player.get("hand", [])) else None
+        if not _is_basic_character(card) or len(player.get("bench", [])) >= ONLINE_DUEL_BENCH_LIMIT:
+            return state
+        player.setdefault("bench", []).append(_new_card_instance(card, next_state.get("turn_number", 1)))
+        player["hand"].pop(action.hand_index)
+        next_state["players"][side] = player
+        return _with_duel_log(next_state, f"{player.get('name')} colocou {card.get('name')} no banco.")
+
+    if action.kind == "attach_energy":
+        target = _target_card(player, action.zone or "active", action.target_index)
+        if not target or player.get("energy_remaining", 0) <= 0:
+            return state
+        target["attached_energy"] = [*(target.get("attached_energy") or []), player.get("energy_zone", {}).get("current", "Universal")]
+        player = _set_target_card(player, action.zone or "active", action.target_index, target)
+        player["energy_remaining"] = player.get("energy_remaining", 0) - 1
+        next_state["players"][side] = player
+        return _with_duel_log(next_state, f"{player.get('name')} anexou energia.")
+
+    if action.kind == "retreat":
+        if action.bench_index is None or action.bench_index >= len(player.get("bench", [])):
+            return state
+        active = player.get("active")
+        replacement = player["bench"][action.bench_index]
+        cost = max(0, int(active.get("recuo") or 0)) if active else 0
+        if not active or not replacement or len(active.get("attached_energy") or []) < cost:
+            return state
+        active["attached_energy"] = (active.get("attached_energy") or [])[cost:]
+        player["active"] = replacement
+        player["bench"][action.bench_index] = active
+        next_state["players"][side] = player
+        return _with_duel_log(next_state, f"{player.get('name')} recuou.")
+
+    if action.kind == "ability":
+        active = player.get("active")
+        ability_index = action.ability_index if action.ability_index is not None else 0
+        ability = (active.get("abilities") or [])[ability_index] if active and ability_index < len(active.get("abilities") or []) else None
+        if not active or not ability or not _can_pay_online_ability(active, ability):
+            return state
+        if next_state.get("turn_number", 1) <= 1:
+            return _with_duel_log(next_state, "Nao e possivel atacar no primeiro turno.")
+        damage = _ability_damage(ability)
+        target_zone = action.zone if action.zone in ["active", "bench"] else "active"
+        target = _target_card(opponent, target_zone, action.target_index)
+        if not target:
+            return state
+        target["hp_remaining"] = max(0, target.get("hp_remaining", 0) - damage)
+        opponent = _set_target_card(opponent, target_zone, action.target_index, target)
+        next_state["players"][side] = player
+        next_state["players"][_opponent_side(side)] = opponent
+        next_state = _with_duel_log(next_state, f"{active.get('name')} usou {ability.get('name')} e causou {damage} de dano.")
+        next_state = _resolve_online_knockouts(next_state, side)
+        return next_state if next_state.get("winner") else _finish_online_turn(next_state)
+
+    if action.kind == "end_turn":
+        return _finish_online_turn(next_state)
+
+    return state
+
+
+# ============ Online duel endpoints ============
+@api_router.get("/duels/online/players")
+async def list_online_duel_players(request: Request):
+    user = await get_current_user(request, db)
+    await touch_user_presence(user["id"])
+    users = await db.users.find(
+        {"id": {"$ne": user["id"]}},
+        {"_id": 0, "password_hash": 0}
+    ).sort("name", 1).to_list(500)
+    return [_public_user(other) for other in users if is_online(other.get("last_seen"))]
+
+
+@api_router.get("/duels/online")
+async def list_my_online_duels(request: Request):
+    user = await get_current_user(request, db)
+    await touch_user_presence(user["id"])
+    duels = await db.online_duels.find(
+        {"$or": [{"players.p1.user_id": user["id"]}, {"players.p2.user_id": user["id"]}]}
+    ).sort("updated_at", -1).to_list(50)
+    active_statuses = {"invited", "deck_selection", "setup", "battle"}
+    return [_online_duel_view(duel, user["id"]) for duel in duels if duel.get("status") in active_statuses]
+
+
+@api_router.post("/duels/online/invite")
+async def invite_online_duel(body: OnlineDuelInviteCreate, request: Request):
+    user = await get_current_user(request, db)
+    await touch_user_presence(user["id"])
+    if body.opponent_id == user["id"]:
+        raise HTTPException(status_code=400, detail="Escolha outro jogador")
+    opponent = await db.users.find_one({"id": body.opponent_id}, {"_id": 0, "password_hash": 0})
+    if not opponent:
+        raise HTTPException(status_code=404, detail="Jogador nao encontrado")
+    if not is_online(opponent.get("last_seen")):
+        raise HTTPException(status_code=400, detail="Jogador nao esta online")
+
+    existing = await db.online_duels.find_one({
+        "status": {"$in": ["invited", "deck_selection", "setup", "battle"]},
+        "$or": [
+            {"players.p1.user_id": user["id"], "players.p2.user_id": opponent["id"]},
+            {"players.p1.user_id": opponent["id"], "players.p2.user_id": user["id"]},
+        ],
+    })
+    if existing:
+        return _online_duel_view(existing, user["id"])
+
+    now = utc_now().isoformat()
+    duel = {
+        "id": str(uuid.uuid4()),
+        "status": "invited",
+        "created_at": now,
+        "updated_at": now,
+        "inviter_id": user["id"],
+        "invitee_id": opponent["id"],
+        "players": {
+            "p1": {"user_id": user["id"], "name": user.get("name", ""), "deck_id": None, "deck_name": None, "ready": False},
+            "p2": {"user_id": opponent["id"], "name": opponent.get("name", ""), "deck_id": None, "deck_name": None, "ready": False},
+        },
+        "coin": None,
+        "state": None,
+    }
+    await db.online_duels.insert_one(duel)
+    return _online_duel_view(duel, user["id"])
+
+
+@api_router.post("/duels/online/{duel_id}/accept")
+async def accept_online_duel(duel_id: str, request: Request):
+    user = await get_current_user(request, db)
+    duel = await _get_online_duel_for_user(duel_id, user["id"])
+    if duel.get("invitee_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Apenas o jogador convidado pode aceitar")
+    if duel.get("status") != "invited":
+        return _online_duel_view(duel, user["id"])
+    await db.online_duels.update_one(
+        {"id": duel_id},
+        {"$set": {"status": "deck_selection", "updated_at": utc_now().isoformat()}}
+    )
+    duel = await _get_online_duel_for_user(duel_id, user["id"])
+    return _online_duel_view(duel, user["id"])
+
+
+@api_router.post("/duels/online/{duel_id}/decline")
+async def decline_online_duel(duel_id: str, request: Request):
+    user = await get_current_user(request, db)
+    duel = await _get_online_duel_for_user(duel_id, user["id"])
+    if duel.get("status") not in ["invited", "deck_selection"]:
+        raise HTTPException(status_code=400, detail="Este duelo ja iniciou")
+    await db.online_duels.update_one(
+        {"id": duel_id},
+        {"$set": {"status": "declined", "updated_at": utc_now().isoformat()}}
+    )
+    duel["status"] = "declined"
+    return _online_duel_view(duel, user["id"])
+
+
+@api_router.post("/duels/online/{duel_id}/deck")
+async def choose_online_duel_deck(duel_id: str, body: OnlineDuelDeckChoice, request: Request):
+    user = await get_current_user(request, db)
+    duel = await _get_online_duel_for_user(duel_id, user["id"])
+    if duel.get("status") not in ["deck_selection", "setup"]:
+        raise HTTPException(status_code=400, detail="Este duelo nao esta escolhendo decks")
+    side = _duel_side_for_user(duel, user["id"])
+    deck, cards, warnings = await _expand_owned_deck(user["id"], body.deck_id)
+    _validate_online_deck(cards, warnings)
+
+    player_update = {
+        f"players.{side}.deck_id": deck["id"],
+        f"players.{side}.deck_name": deck.get("name", "Deck"),
+        f"players.{side}.ready": True,
+        "updated_at": utc_now().isoformat(),
+    }
+    await db.online_duels.update_one({"id": duel_id}, {"$set": player_update})
+    duel = await _get_online_duel_for_user(duel_id, user["id"])
+
+    if duel["players"]["p1"].get("deck_id") and duel["players"]["p2"].get("deck_id") and not duel.get("state"):
+        p1_deck, p1_cards, p1_warnings = await _expand_owned_deck(duel["players"]["p1"]["user_id"], duel["players"]["p1"]["deck_id"])
+        p2_deck, p2_cards, p2_warnings = await _expand_owned_deck(duel["players"]["p2"]["user_id"], duel["players"]["p2"]["deck_id"])
+        _validate_online_deck(p1_cards, p1_warnings)
+        _validate_online_deck(p2_cards, p2_warnings)
+        result = random.choice(["cara", "coroa"])
+        starter = random.choice(["p1", "p2"])
+        coin = {"result": result, "winner_side": starter, "winner_name": duel["players"][starter]["name"]}
+        state = {
+            "id": duel_id,
+            "phase": "setup",
+            "turn": starter,
+            "turn_number": 1,
+            "winner": None,
+            "log": [f"Cara ou coroa: deu {result}. {duel['players'][starter]['name']} comeca."],
+            "players": {
+                "p1": _make_duel_player(duel["players"]["p1"]["name"], p1_cards, p1_deck.get("energy_types", []), 1),
+                "p2": _make_duel_player(duel["players"]["p2"]["name"], p2_cards, p2_deck.get("energy_types", []), 1),
+            },
+        }
+        await db.online_duels.update_one(
+            {"id": duel_id},
+            {"$set": {"status": "setup", "state": state, "coin": coin, "updated_at": utc_now().isoformat()}}
+        )
+        duel = await _get_online_duel_for_user(duel_id, user["id"])
+
+    return _online_duel_view(duel, user["id"])
+
+
+@api_router.post("/duels/online/{duel_id}/setup-ready")
+async def online_duel_setup_ready(duel_id: str, body: OnlineDuelSetupReady, request: Request):
+    user = await get_current_user(request, db)
+    duel = await _get_online_duel_for_user(duel_id, user["id"])
+    if duel.get("status") != "setup" or not duel.get("state"):
+        raise HTTPException(status_code=400, detail="Duelo nao esta em preparacao")
+    side = _duel_side_for_user(duel, user["id"])
+    state = copy.deepcopy(duel["state"])
+    if body.ready and not state["players"][side].get("active"):
+        raise HTTPException(status_code=400, detail="Escolha uma carta ativa antes de confirmar")
+    state["players"][side]["setup_ready"] = body.ready
+    if all(state["players"][s].get("active") and state["players"][s].get("setup_ready") for s in ["p1", "p2"]):
+        state["phase"] = "battle"
+        state = _with_duel_log(state, "Duelo iniciado.")
+        status = "battle"
+    else:
+        status = "setup"
+    await db.online_duels.update_one(
+        {"id": duel_id},
+        {"$set": {"state": state, "status": status, "updated_at": utc_now().isoformat()}}
+    )
+    duel = await _get_online_duel_for_user(duel_id, user["id"])
+    return _online_duel_view(duel, user["id"])
+
+
+@api_router.post("/duels/online/{duel_id}/action")
+async def online_duel_action(duel_id: str, body: OnlineDuelAction, request: Request):
+    user = await get_current_user(request, db)
+    duel = await _get_online_duel_for_user(duel_id, user["id"])
+    if duel.get("status") not in ["setup", "battle"] or not duel.get("state"):
+        raise HTTPException(status_code=400, detail="Duelo nao iniciado")
+    side = _duel_side_for_user(duel, user["id"])
+    state = _apply_online_action(duel["state"], side, body)
+    status = "finished" if state.get("winner") else state.get("phase", duel.get("status"))
+    await db.online_duels.update_one(
+        {"id": duel_id},
+        {"$set": {"state": state, "status": status, "updated_at": utc_now().isoformat()}}
+    )
+    duel = await _get_online_duel_for_user(duel_id, user["id"])
+    return _online_duel_view(duel, user["id"])
+
+
 # ============ Deck CRUD ============
 def _validate_deck_rules(card_ids: list[str], cards_by_id: dict) -> list[str]:
     """Returns list of validation warnings (not errors, deck can be saved mid-build)."""
@@ -928,6 +1515,9 @@ async def startup():
         await db.cards.create_index("user_id")
         await db.decks.create_index("user_id")
         await db.files.create_index("storage_path")
+        await db.online_duels.create_index("id", unique=True)
+        await db.online_duels.create_index("players.p1.user_id")
+        await db.online_duels.create_index("players.p2.user_id")
     except Exception as e:
         logger.error(f"Index creation: {e}")
     # Init storage

@@ -24,7 +24,7 @@ import {
   setupBenchToHand,
   setupToBench,
 } from "../lib/duelEngine";
-import { Archive, Bot, ChevronRight, Loader2, Play, RotateCcw, Shield, Sparkles, Sword, X, Zap } from "lucide-react";
+import { Archive, Bot, ChevronRight, Loader2, Play, RotateCcw, Shield, Sparkles, Sword, Users, X, Zap } from "lucide-react";
 import { toast } from "sonner";
 
 const CardThumb = ({ card, compact = false, onClick }) => {
@@ -260,6 +260,7 @@ const needsEnergySourceChoice = effects => normalizeEffects(effects).some(effect
 );
 
 export default function DuelPage() {
+  const [mode, setMode] = useState("");
   const [decks, setDecks] = useState([]);
   const [playerDeckId, setPlayerDeckId] = useState("");
   const [opponentDeckId, setOpponentDeckId] = useState("");
@@ -272,6 +273,10 @@ export default function DuelPage() {
   const [pendingEnergyMoveAction, setPendingEnergyMoveAction] = useState(null);
   const [pendingEvolutionHandIndex, setPendingEvolutionHandIndex] = useState(null);
   const [cemeterySide, setCemeterySide] = useState(null);
+  const [onlinePlayers, setOnlinePlayers] = useState([]);
+  const [onlineDuels, setOnlineDuels] = useState([]);
+  const [activeOnlineDuel, setActiveOnlineDuel] = useState(null);
+  const [onlineBusy, setOnlineBusy] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -287,6 +292,33 @@ export default function DuelPage() {
       }
     })();
   }, []);
+
+  const loadOnlineLobby = async ({ silent = false } = {}) => {
+    if (!silent) setOnlineBusy(true);
+    try {
+      const [playersRes, duelsRes] = await Promise.all([
+        api.get("/duels/online/players"),
+        api.get("/duels/online"),
+      ]);
+      setOnlinePlayers(playersRes.data || []);
+      setOnlineDuels(duelsRes.data || []);
+      setActiveOnlineDuel(current => {
+        const currentFresh = current ? (duelsRes.data || []).find(duel => duel.id === current.id) : null;
+        return currentFresh || (duelsRes.data || [])[0] || null;
+      });
+    } catch (e) {
+      if (!silent) toast.error(formatApiError(e));
+    } finally {
+      if (!silent) setOnlineBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (mode !== "online") return undefined;
+    loadOnlineLobby();
+    const timer = window.setInterval(() => loadOnlineLobby({ silent: true }), 3000);
+    return () => window.clearInterval(timer);
+  }, [mode]);
 
   const startDuel = async () => {
     if (!playerDeckId) {
@@ -333,6 +365,44 @@ export default function DuelPage() {
       setStarting(false);
     }
   };
+
+  const inviteOnlinePlayer = async playerId => {
+    setOnlineBusy(true);
+    try {
+      const { data } = await api.post("/duels/online/invite", { opponent_id: playerId });
+      setActiveOnlineDuel(data);
+      await loadOnlineLobby({ silent: true });
+      toast.success("Convite enviado");
+    } catch (e) {
+      toast.error(formatApiError(e));
+    } finally {
+      setOnlineBusy(false);
+    }
+  };
+
+  const postOnline = async (path, payload = {}) => {
+    if (!activeOnlineDuel) return;
+    setOnlineBusy(true);
+    try {
+      const { data } = await api.post(`/duels/online/${activeOnlineDuel.id}${path}`, payload);
+      setActiveOnlineDuel(data);
+      await loadOnlineLobby({ silent: true });
+    } catch (e) {
+      toast.error(formatApiError(e));
+    } finally {
+      setOnlineBusy(false);
+    }
+  };
+
+  const chooseOnlineDeck = () => {
+    if (!playerDeckId) {
+      toast.error("Escolha um deck");
+      return;
+    }
+    postOnline("/deck", { deck_id: playerDeckId });
+  };
+
+  const onlineAction = payload => postOnline("/action", payload);
 
   const player = duel?.players.player;
   const opponent = duel?.players.opponent;
@@ -460,6 +530,350 @@ export default function DuelPage() {
 
   if (loading) {
     return <div className="p-8 flex justify-center"><Loader2 className="animate-spin text-indigo-400" /></div>;
+  }
+
+  if (!mode) {
+    return (
+      <div className="mx-auto max-w-5xl p-6">
+        <div className="mb-6">
+          <div className="mb-1 flex items-center gap-2 text-sm uppercase tracking-[0.2em] text-indigo-400">
+            <Sword size={14} />
+            Duelo
+          </div>
+          <h1 className="text-4xl font-bold" style={{ fontFamily: "Outfit" }}>Arena GeekCards</h1>
+          <p className="mt-1 text-sm text-slate-400">Escolha como quer entrar na arena.</p>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => setMode("online")}
+            className="glass min-h-56 rounded-xl p-6 text-left transition-colors hover:border-indigo-500/50"
+          >
+            <Users className="mb-4 text-indigo-300" size={34} />
+            <h2 className="text-2xl font-bold" style={{ fontFamily: "Outfit" }}>Duelo online</h2>
+            <p className="mt-2 text-sm text-slate-400">
+              Convide jogadores online, escolha seu deck em privado e jogue por polling assíncrono.
+            </p>
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("bot")}
+            className="glass min-h-56 rounded-xl p-6 text-left transition-colors hover:border-rose-500/50"
+          >
+            <Bot className="mb-4 text-rose-300" size={34} />
+            <h2 className="text-2xl font-bold" style={{ fontFamily: "Outfit" }}>Duelo contra bot</h2>
+            <p className="mt-2 text-sm text-slate-400">
+              Use o modo local já existente para testar seus decks contra um oponente automático.
+            </p>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (mode === "online") {
+    const onlineState = activeOnlineDuel?.state;
+    const onlinePlayer = onlineState?.players?.player;
+    const onlineOpponent = onlineState?.players?.opponent;
+    const onlineIsPlayerTurn = onlineState?.turn === "player" && !onlineState?.winner;
+    const inviteReceived = activeOnlineDuel?.status === "invited" && activeOnlineDuel?.invitee_id === activeOnlineDuel?.me?.user_id;
+    const inviteSent = activeOnlineDuel?.status === "invited" && !inviteReceived;
+
+    return (
+      <div className="p-6 max-w-[1500px] mx-auto">
+        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="text-sm uppercase tracking-[0.2em] text-indigo-400 mb-1 flex items-center gap-2">
+              <Users size={14} />
+              Duelo online
+            </div>
+            <h1 className="text-4xl font-bold" style={{ fontFamily: "Outfit" }}>Arena Online</h1>
+            <p className="mt-1 text-sm text-slate-400">
+              Polling ativo. A mão do oponente fica sempre privada no servidor.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => { setMode(""); setActiveOnlineDuel(null); }}
+            className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800"
+          >
+            Trocar modo
+          </button>
+        </div>
+
+        <div className="grid gap-5 xl:grid-cols-[22rem_minmax(0,1fr)]">
+          <aside className="space-y-4">
+            <div className="glass rounded-xl p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-sm font-bold">Jogadores online</h2>
+                {onlineBusy && <Loader2 size={14} className="animate-spin text-indigo-300" />}
+              </div>
+              <div className="space-y-2">
+                {onlinePlayers.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-slate-800 p-4 text-center text-sm text-slate-500">
+                    Nenhum jogador online agora
+                  </div>
+                ) : onlinePlayers.map(other => (
+                  <div key={other.id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950/50 p-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-bold">{other.name}</div>
+                      <div className="text-xs text-emerald-300">online</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => inviteOnlinePlayer(other.id)}
+                      disabled={onlineBusy}
+                      className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium hover:bg-indigo-500 disabled:opacity-50"
+                    >
+                      Convidar
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="glass rounded-xl p-4">
+              <h2 className="mb-3 text-sm font-bold">Convites e duelos</h2>
+              <div className="space-y-2">
+                {onlineDuels.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-slate-800 p-4 text-center text-sm text-slate-500">
+                    Sem convites ativos
+                  </div>
+                ) : onlineDuels.map(item => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setActiveOnlineDuel(item)}
+                    className={`w-full rounded-lg border p-3 text-left text-sm transition-colors ${activeOnlineDuel?.id === item.id ? "border-indigo-500/60 bg-indigo-500/10" : "border-slate-800 bg-slate-950/50 hover:border-slate-700"}`}
+                  >
+                    <div className="font-bold">{item.opponent?.name || "Oponente"}</div>
+                    <div className="mt-1 text-xs text-slate-400">{item.status}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </aside>
+
+          <section className="min-w-0">
+            {!activeOnlineDuel ? (
+              <div className="glass rounded-xl p-12 text-center">
+                <Shield className="mx-auto mb-3 text-slate-600" size={34} />
+                <p className="text-slate-400">Convide alguém online ou aceite um convite para começar.</p>
+              </div>
+            ) : activeOnlineDuel.status === "invited" ? (
+              <div className="glass rounded-xl p-6">
+                <h2 className="text-xl font-bold">{inviteReceived ? "Você recebeu um convite" : "Convite enviado"}</h2>
+                <p className="mt-1 text-sm text-slate-400">
+                  Oponente: {activeOnlineDuel.opponent?.name}
+                </p>
+                {inviteReceived ? (
+                  <div className="mt-5 flex gap-2">
+                    <button onClick={() => postOnline("/accept")} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium hover:bg-emerald-500">Aceitar</button>
+                    <button onClick={() => postOnline("/decline")} className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800">Recusar</button>
+                  </div>
+                ) : (
+                  <p className="mt-5 text-sm text-slate-400">Aguardando resposta do jogador convidado.</p>
+                )}
+                {inviteSent && (
+                  <button onClick={() => postOnline("/decline")} className="mt-4 rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800">Cancelar convite</button>
+                )}
+              </div>
+            ) : activeOnlineDuel.status === "deck_selection" ? (
+              <div className="glass rounded-xl p-6">
+                <h2 className="text-xl font-bold">Escolha seu deck</h2>
+                <p className="mt-1 text-sm text-slate-400">
+                  Cada jogador escolhe o próprio deck. O duelo começa a preparar quando ambos confirmarem.
+                </p>
+                <div className="mt-5 flex flex-wrap items-end gap-3">
+                  <div>
+                    <label className="mb-1 block text-xs text-slate-500">Seu deck</label>
+                    <select value={playerDeckId} onChange={event => setPlayerDeckId(event.target.value)}
+                      className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm">
+                      {decks.map(deck => <option key={deck.id} value={deck.id}>{deck.name}</option>)}
+                    </select>
+                  </div>
+                  <button onClick={chooseOnlineDeck} disabled={onlineBusy || decks.length === 0}
+                    className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium hover:bg-indigo-500 disabled:opacity-50">
+                    Confirmar deck
+                  </button>
+                </div>
+                <div className="mt-5 grid gap-2 text-sm text-slate-400 sm:grid-cols-2">
+                  <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">Você: {activeOnlineDuel.me?.ready ? "pronto" : "escolhendo"}</div>
+                  <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">{activeOnlineDuel.opponent?.name}: {activeOnlineDuel.opponent?.ready ? "pronto" : "escolhendo"}</div>
+                </div>
+              </div>
+            ) : onlineState?.phase === "setup" ? (
+              <div className="glass rounded-xl p-5">
+                <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <h2 className="text-xl font-bold">Preparação online</h2>
+                    <p className="mt-1 text-sm text-slate-400">
+                      {activeOnlineDuel.coin?.winner_name} começa. Escolha sua ativa e banco; a mão do oponente não é exibida.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => postOnline("/setup-ready", { ready: !onlinePlayer?.setup_ready })}
+                    disabled={!onlinePlayer?.active}
+                    className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium hover:bg-indigo-500 disabled:opacity-40"
+                  >
+                    {onlinePlayer?.setup_ready ? "Desmarcar pronto" : "Pronto"}
+                  </button>
+                </div>
+
+                <div className="grid gap-4 xl:grid-cols-2">
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-4">
+                    <div className="mb-3 flex items-center justify-between">
+                      <h3 className="text-sm font-bold">Você</h3>
+                      <span className="text-xs text-slate-500">Banco {onlinePlayer?.bench?.length || 0}/{DUEL_RULES.BENCH_LIMIT}</span>
+                    </div>
+                    <div className="mb-4 flex gap-3">
+                      <CardThumb card={onlinePlayer?.active} onClick={onlinePlayer?.active ? () => setDetailCard(onlinePlayer.active) : undefined} />
+                      <div className="flex gap-2">
+                        {[0, 1, 2].map(index => (
+                          <div key={index} className="space-y-1">
+                            <CardThumb card={onlinePlayer?.bench?.[index]} compact onClick={onlinePlayer?.bench?.[index] ? () => setDetailCard(onlinePlayer.bench[index]) : undefined} />
+                            {onlinePlayer?.bench?.[index] && (
+                              <button onClick={() => onlineAction({ kind: "setup_bench_to_hand", bench_index: index })} className="w-full rounded bg-slate-800 px-1 py-0.5 text-[10px] text-slate-300">Remover</button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="max-h-56 overflow-x-auto rounded-lg border border-slate-800 bg-slate-950/40 p-2">
+                      <div className="flex min-w-max gap-2">
+                        {(onlinePlayer?.hand || []).map((card, index) => (
+                          <div key={`${card.id}-${index}`} className="w-28 shrink-0 space-y-2 rounded-lg border border-slate-800 bg-slate-950/50 p-2">
+                            <CardThumb card={card} onClick={() => setDetailCard(card)} />
+                            <button onClick={() => onlineAction({ kind: "setup_active", hand_index: index })} disabled={card.card_type !== "Personagem" || card.is_evolution} className="w-full rounded bg-emerald-500/15 px-2 py-1 text-[10px] text-emerald-200 disabled:opacity-35">Ativa</button>
+                            <button onClick={() => onlineAction({ kind: "setup_to_bench", hand_index: index })} disabled={card.card_type !== "Personagem" || card.is_evolution || (onlinePlayer?.bench?.length || 0) >= DUEL_RULES.BENCH_LIMIT} className="w-full rounded bg-indigo-500/15 px-2 py-1 text-[10px] text-indigo-200 disabled:opacity-35">Banco</button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-4">
+                    <div className="mb-3 flex items-center justify-between">
+                      <h3 className="text-sm font-bold">{activeOnlineDuel.opponent?.name}</h3>
+                      <span className="text-xs text-slate-500">{onlineOpponent?.setup_ready ? "pronto" : "preparando"}</span>
+                    </div>
+                    <div className="flex gap-3">
+                      <CardThumb card={onlineOpponent?.active} onClick={onlineOpponent?.active ? () => setDetailCard(onlineOpponent.active) : undefined} />
+                      <div className="flex gap-2">
+                        {[0, 1, 2].map(index => (
+                          <CardThumb key={index} card={onlineOpponent?.bench?.[index]} compact onClick={onlineOpponent?.bench?.[index] ? () => setDetailCard(onlineOpponent.bench[index]) : undefined} />
+                        ))}
+                      </div>
+                    </div>
+                    <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950/50 p-3 text-sm text-slate-400">
+                      Mão do oponente: {onlineOpponent?.hand_count ?? onlineOpponent?.hand?.length ?? 0} cartas ocultas
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : onlineState ? (
+              <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+                <div className="min-w-0 space-y-5">
+                  {onlineState.winner && (
+                    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-center text-emerald-200">
+                      {onlineState.winner === "player" ? "Você venceu!" : "Oponente venceu!"}
+                    </div>
+                  )}
+                  <div className="glass rounded-xl p-4">
+                    <div className="mb-3 flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-sm font-bold"><Bot size={16} className="text-rose-300" /> {activeOnlineDuel.opponent?.name}</div>
+                      <div className="font-mono text-sm text-rose-300">{onlineOpponent.points} / {DUEL_RULES.POINTS_TO_WIN}</div>
+                    </div>
+                    <div className="grid gap-3 lg:grid-cols-[1fr_20rem]">
+                      <FieldCard card={onlineOpponent.active} title="Ativa" onCardClick={setDetailCard} />
+                      <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
+                        <div className="mb-2 text-[10px] uppercase tracking-wider text-slate-500">Banco</div>
+                        <div className="flex gap-2">{[0, 1, 2].map(index => <CardThumb key={index} card={onlineOpponent.bench?.[index]} compact onClick={onlineOpponent.bench?.[index] ? () => setDetailCard(onlineOpponent.bench[index]) : undefined} />)}</div>
+                        <div className="mt-3 text-xs text-slate-500">Mão: {onlineOpponent.hand_count ?? 0} cartas ocultas</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="glass rounded-xl p-4">
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 text-sm font-bold"><Sparkles size={16} className="text-indigo-300" /> Você</div>
+                      <div className="flex items-center gap-3">
+                        <div className="font-mono text-sm text-indigo-300">{onlinePlayer.points} / {DUEL_RULES.POINTS_TO_WIN}</div>
+                        <span className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-2 py-1 text-xs text-yellow-200">Atual: {onlinePlayer.energy_zone?.current}</span>
+                        <span className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-400">Próxima: {onlinePlayer.energy_zone?.next}</span>
+                        <span className="text-xs text-slate-400">Anexos: {onlinePlayer.energy_remaining}</span>
+                      </div>
+                    </div>
+                    <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_20rem]">
+                      <FieldCard card={onlinePlayer.active} title="Ativa" onCardClick={setDetailCard}>
+                        {onlineIsPlayerTurn && onlinePlayer.active && (
+                          <div className="space-y-2">
+                            <button onClick={() => onlineAction({ kind: "attach_energy", zone: "active", target_index: 0 })} disabled={onlinePlayer.energy_remaining <= 0} className="inline-flex items-center gap-1 rounded-md border border-yellow-500/30 bg-yellow-500/10 px-2 py-1 text-[11px] text-yellow-200 disabled:opacity-40"><Zap size={12} /> Energia</button>
+                            <div className="space-y-1">
+                              {(onlinePlayer.active.abilities || []).map((ability, index) => (
+                                <button key={index} onClick={() => onlineAction({ kind: "ability", ability_index: index, zone: "active", target_index: 0 })} disabled={(onlinePlayer.active.attached_energy || []).length < (ability.energy_cost || 0) || onlineState.turn_number <= 1} className="flex w-full items-center justify-between gap-2 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-left text-[11px] hover:border-indigo-500/60 disabled:opacity-40">
+                                  <span className="truncate">{ability.name}</span>
+                                  <span className="font-mono text-rose-300">{abilityDamage(ability)}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </FieldCard>
+                      <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
+                        <div className="mb-2 text-[10px] uppercase tracking-wider text-slate-500">Banco</div>
+                        <div className="flex gap-2">
+                          {[0, 1, 2].map(index => (
+                            <div key={index} className="space-y-1">
+                              <CardThumb card={onlinePlayer.bench?.[index]} compact onClick={onlinePlayer.bench?.[index] ? () => setDetailCard(onlinePlayer.bench[index]) : undefined} />
+                              {onlineIsPlayerTurn && onlinePlayer.bench?.[index] && (
+                                <div className="grid gap-1">
+                                  <button onClick={() => onlineAction({ kind: "attach_energy", zone: "bench", target_index: index })} disabled={onlinePlayer.energy_remaining <= 0} className="rounded bg-yellow-500/10 px-1 py-0.5 text-[10px] text-yellow-200 disabled:opacity-40">Energia</button>
+                                  <button onClick={() => onlineAction({ kind: "retreat", bench_index: index })} className="rounded bg-indigo-500/15 px-1 py-0.5 text-[10px] text-indigo-200">Trocar</button>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-4">
+                      <div className="mb-2 flex items-center justify-between"><div className="text-[10px] uppercase tracking-wider text-slate-500">Mão</div><div className="text-[10px] font-mono text-slate-500">{onlinePlayer.hand.length} cartas</div></div>
+                      <div className="max-h-64 overflow-x-auto rounded-lg border border-slate-800 bg-slate-950/45 p-2">
+                        <div className="flex min-w-max gap-2">
+                          {onlinePlayer.hand.map((card, index) => (
+                            <div key={`${card.id}-${index}`} className="w-28 shrink-0 space-y-2 rounded-lg border border-slate-800 bg-slate-950/50 p-2">
+                              <CardThumb card={card} onClick={() => setDetailCard(card)} />
+                              {onlineIsPlayerTurn && card.card_type === "Personagem" && !card.is_evolution && (
+                                <button onClick={() => onlineAction({ kind: "play_to_bench", hand_index: index })} disabled={(onlinePlayer.bench?.length || 0) >= DUEL_RULES.BENCH_LIMIT} className="w-full rounded bg-indigo-500/15 px-2 py-1 text-[10px] text-indigo-200 disabled:opacity-40">Banco</button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-4 flex justify-end">
+                      <button onClick={() => onlineAction({ kind: "end_turn" })} disabled={!onlineIsPlayerTurn} className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-sm hover:bg-indigo-500 disabled:opacity-40">Encerrar turno <ChevronRight size={14} /></button>
+                    </div>
+                  </div>
+                </div>
+                <aside className="glass h-fit rounded-xl p-4">
+                  <h3 className="mb-3 text-sm uppercase tracking-widest text-slate-400">Log</h3>
+                  <div className="space-y-2 text-xs text-slate-400">
+                    {(onlineState.log || []).map((entry, index) => <div key={index} className="rounded bg-slate-950/60 p-2">{entry}</div>)}
+                  </div>
+                </aside>
+              </div>
+            ) : (
+              <div className="glass rounded-xl p-12 text-center text-slate-400">Aguardando estado do duelo.</div>
+            )}
+          </section>
+        </div>
+        {detailCard && <CommunityCardDetailModal card={detailCard} onClose={() => setDetailCard(null)} />}
+      </div>
+    );
   }
 
   return (
