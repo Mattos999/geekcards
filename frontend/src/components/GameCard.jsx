@@ -181,7 +181,7 @@ else {
       </div>
 
       {/* OVERLAY */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent pointer-events-none" />
+      <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/85 via-black/30 to-transparent pointer-events-none" />
 
       {/* ALPHA */}
       {card.is_alpha && (
@@ -202,9 +202,6 @@ else {
       {card.is_alpha && (
         <div className="absolute inset-0 pointer-events-none alpha-foil" />
       )}
-      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent pointer-events-none" />
-
-
 
       {/* RARITY STARS */}
       <div className="absolute top-2 right-2 flex gap-0.5">
