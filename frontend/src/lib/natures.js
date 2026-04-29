@@ -39,7 +39,7 @@ export const WEAKNESS_MAP = {
   "Dragão": ["Shinobi"],
 };
 
-export const CARD_TYPES = ["Personagem", "Item", "Mestre", "Energia"];
+export const CARD_TYPES = ["Personagem", "Item", "Mestre", "Equipamento"];
 export const ENERGY_TYPES = ["Superior", "Natural", "Interior", "Universal"];
 
 export const RARITY_COLORS = {
@@ -51,6 +51,7 @@ export const RARITY_COLORS = {
   alpha: "#ffd900",
   item: "#b3b3b3",
   mestre: "#9834c7",
+  equipamento: "#f97316",
   energia: "#4400ff",
 };
 

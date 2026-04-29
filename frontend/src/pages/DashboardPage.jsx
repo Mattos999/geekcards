@@ -2,23 +2,47 @@ import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, formatApiError } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { Library, Layers, Plus, Sparkles, TrendingUp } from "lucide-react";
+import { Library, Layers, Plus, Sparkles, TrendingUp, Users } from "lucide-react";
 import { toast } from "sonner";
 
 export default function DashboardPage() {
   const { user } = useAuth();
   const [cards, setCards] = useState([]);
   const [decks, setDecks] = useState([]);
+  const [players, setPlayers] = useState([]);
   const navigate = useNavigate();
 
   useEffect(() => {
+    let active = true;
+
+    const loadPresence = async () => {
+      try {
+        await api.post("/presence/heartbeat");
+        const { data } = await api.get("/users/presence");
+        if (active) setPlayers(Array.isArray(data) ? data : []);
+      } catch {
+        if (active) setPlayers([]);
+      }
+    };
+
     (async () => {
       try {
-        const [c, d] = await Promise.all([api.get("/cards"), api.get("/decks")]);
+        const [c, d, p] = await Promise.all([
+          api.get("/cards"),
+          api.get("/decks"),
+          api.get("/users/presence"),
+        ]);
         setCards(Array.isArray(c.data) ? c.data : []);
         setDecks(Array.isArray(d.data) ? d.data : []);
+        setPlayers(Array.isArray(p.data) ? p.data : []);
       } catch (e) { toast.error(formatApiError(e)); }
     })();
+
+    const interval = window.setInterval(loadPresence, 30000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
   }, []);
 
   const stats = [
@@ -27,6 +51,7 @@ export default function DashboardPage() {
     { label: "Personagens", value: cards.filter(c => c.card_type === "Personagem").length, icon: Sparkles, color: "#EC4899" },
     { label: "ALPHAs", value: cards.filter(c => c.is_alpha).length, icon: TrendingUp, color: "#22C55E" },
   ];
+  const onlineCount = players.filter(player => player.is_online).length;
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
@@ -77,6 +102,50 @@ export default function DashboardPage() {
           <p className="text-sm text-slate-400">Arrume 20 cartas e analise a cobertura de naturezas.</p>
         </button>
       </div>
+
+      <section className="glass mb-10 rounded-xl p-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="flex items-center gap-2 text-xl font-semibold" style={{ fontFamily: "Outfit" }}>
+              <Users size={18} className="text-emerald-300" />
+              Jogadores
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">{onlineCount} online de {players.length}</p>
+          </div>
+          <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-200">
+            Online agora
+          </div>
+        </div>
+        {players.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-slate-800 p-6 text-center text-sm text-slate-500">
+            Nenhum jogador encontrado.
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-800 rounded-lg border border-slate-800">
+            {players.map(player => (
+              <div key={player.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${player.is_online ? "bg-emerald-400" : "bg-slate-600"}`} />
+                    <span className="truncate text-sm font-medium text-slate-100">{player.name}</span>
+                    {player.id === user?.id && (
+                      <span className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-indigo-300">
+                        voce
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-0.5 truncate text-xs text-slate-500">{player.email}</div>
+                </div>
+                <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${
+                  player.is_online ? "bg-emerald-500/15 text-emerald-300" : "bg-slate-800 text-slate-400"
+                }`}>
+                  {player.is_online ? "online" : "offline"}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       {/* Recent decks */}
       <div className="mb-10">

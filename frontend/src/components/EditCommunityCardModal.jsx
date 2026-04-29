@@ -3,11 +3,12 @@ import { api, formatApiError } from "../lib/api";
 import { NATURES, NATURE_COLORS, CARD_TYPES, ENERGY_TYPES } from "../lib/natures";
 import { EnergyCostSymbols } from "./EnergyCostSymbols";
 import { normalizeAbilityEnergyCosts, sanitizeEnergyCosts, totalEnergyCost } from "../lib/energyCosts";
+import { normalizeEffects } from "../lib/cardEffects";
 import { Loader2, X, Plus, Zap } from "lucide-react";
 import { toast } from "sonner";
 
 const BLANK_ABILITY = { name: "", description: "", damage: 0, energy_cost: 0, energy_costs: [] };
-const normalizeEvolutionNumber = value => typeof value === "string" ? value : "";
+const normalizeEvolutionNumber = value => value === "I" ? "II" : (typeof value === "string" ? value : "");
 
 export function EditCommunityCardModal({ card, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
@@ -23,14 +24,21 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
       is_alpha: card.is_alpha || false,
       is_evolution: card.is_evolution || false,
       evolution_number: normalizeEvolutionNumber(card.evolution_number),
+      evolves_from_card_id: card.evolves_from_card_id || "",
+      evolves_from_name: card.evolves_from_name || "",
       hp: card.hp ?? 0,
       recuo: card.recuo ?? 0,
+      effects: normalizeEffects(card.effects),
+      passive_effects: normalizeEffects(card.passive_effects),
+      speed: card.speed || "",
+      attach_to: card.attach_to || "",
       abilities: (card.abilities || []).map(ab => ({
         name: ab.name || "",
         description: ab.description || "",
         damage: ab.damage ?? 0,
         energy_cost: ab.energy_cost ?? 0,
         energy_costs: normalizeAbilityEnergyCosts(ab),
+        effects: normalizeEffects(ab.effects),
         energy_type_to_add: ENERGY_TYPES[0],
         energy_amount_to_add: 1,
       })),
@@ -120,7 +128,11 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
     try {
       const payload = {
         ...form,
-        evolution_number: form.is_evolution ? (normalizeEvolutionNumber(form.evolution_number) || "I") : null,
+        evolution_number: form.is_evolution ? (normalizeEvolutionNumber(form.evolution_number) || "II") : null,
+        evolves_from_card_id: form.is_evolution ? (form.evolves_from_card_id || null) : null,
+        evolves_from_name: form.is_evolution ? (form.evolves_from_name || null) : null,
+        effects: normalizeEffects(form.effects),
+        passive_effects: normalizeEffects(form.passive_effects),
         abilities: form.abilities.map(({
           energy_type_to_add,
           energy_amount_to_add,
@@ -128,6 +140,7 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
         }) => ({
           ...ability,
           energy_costs: sanitizeEnergyCosts(ability.energy_costs),
+          effects: normalizeEffects(ability.effects),
           energy_cost: totalEnergyCost(ability.energy_costs),
         })),
       };
@@ -195,8 +208,10 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
                 ...f,
                 is_evolution: checked,
                 evolution_number: checked
-                  ? (normalizeEvolutionNumber(f.evolution_number) || "I")
-                  : ""
+                  ? (normalizeEvolutionNumber(f.evolution_number) || "II")
+                  : "",
+                evolves_from_card_id: checked ? f.evolves_from_card_id : "",
+                evolves_from_name: checked ? f.evolves_from_name : ""
               }));
             }}
             className="w-4 h-4 rounded"
@@ -220,11 +235,11 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
         <div>
           <label className={labelCls}>Nível de Evolução</label>
           <select
-            value={normalizeEvolutionNumber(form.evolution_number) || "I"}
+            value={normalizeEvolutionNumber(form.evolution_number) || "II"}
             onChange={e => set("evolution_number", e.target.value)}
             className={inputCls}
           >
-            {["", "I", "II", "III", "IV"].map(r => (
+            {["II", "III", "IV"].map(r => (
               <option key={r} value={r}>{r}</option>
             ))}
           </select>

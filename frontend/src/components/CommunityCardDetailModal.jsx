@@ -21,6 +21,7 @@ import {
   WEAKNESS_MAP,
   computeEffectiveWeaknesses,
 } from "../lib/natures";
+import { effectSummary, normalizeEffects } from "../lib/cardEffects";
 
 const ADVANTAGE_MAP = {};
 NATURES.forEach(nature => {
@@ -108,6 +109,8 @@ export function CommunityCardDetailModal({ card, onClose }) {
   if (!card) return null;
 
   const abilities = Array.isArray(card.abilities) ? card.abilities : [];
+  const cardEffects = normalizeEffects(card.effects);
+  const passiveEffects = normalizeEffects(card.passive_effects);
   const rarityColor = card.is_alpha
     ? RARITY_COLORS.alpha
     : RARITY_COLORS[card.rarity] ?? RARITY_COLORS[0];
@@ -290,6 +293,19 @@ export function CommunityCardDetailModal({ card, onClose }) {
                     ) : (
                       <p className="mt-2 text-sm text-slate-500">Sem descricao.</p>
                     )}
+
+                    {normalizeEffects(ability.effects).length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {normalizeEffects(ability.effects).map((effect, effectIndex) => (
+                          <span
+                            key={`${effect.type}-${effectIndex}`}
+                            className="rounded-full border border-indigo-500/30 bg-indigo-500/10 px-2.5 py-1 text-[11px] text-indigo-100"
+                          >
+                            {effectSummary(effect)}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -299,6 +315,23 @@ export function CommunityCardDetailModal({ card, onClose }) {
               </div>
             )}
           </Section>
+
+          {(cardEffects.length > 0 || passiveEffects.length > 0) && (
+            <Section title="Efeitos">
+              <div className="space-y-2">
+                {cardEffects.map((effect, index) => (
+                  <div key={`effect-${index}`} className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-sm text-slate-300">
+                    {effectSummary(effect)}
+                  </div>
+                ))}
+                {passiveEffects.map((effect, index) => (
+                  <div key={`passive-${index}`} className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-sm text-amber-100">
+                    Passivo: {effectSummary(effect)}
+                  </div>
+                ))}
+              </div>
+            </Section>
+          )}
         </div>
       </div>
     </div>

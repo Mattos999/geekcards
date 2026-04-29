@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { api, formatApiError } from "../lib/api";
-import { NATURES, NATURE_COLORS, CARD_TYPES } from "../lib/natures";
+import { NATURES, NATURE_COLORS, CARD_TYPES, ENERGY_TYPES } from "../lib/natures";
 import { GameCard } from "../components/GameCard";
 import { Save, Search, AlertTriangle, BarChart3, Plus, Minus, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -39,6 +39,9 @@ export default function DeckBuilderPage() {
   useEffect(() => { load(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cardsById = useMemo(() => Object.fromEntries(library.map(c => [c.id, c])), [library]);
+  const deckEnergyTypes = useMemo(() => (
+    deck?.energy_types?.length ? deck.energy_types : ["Universal"]
+  ), [deck]);
 
   const filteredLibrary = useMemo(() => library.filter(c => {
     if (q && !c.name.toLowerCase().includes(q.toLowerCase())) return false;
@@ -50,6 +53,7 @@ export default function DeckBuilderPage() {
   const countInDeck = (cardId) => cardIds.filter(x => x === cardId).length;
 
   const addToDeck = (card) => {
+    if (card.card_type === "Energia") { toast.error("Decks de duelo não usam cartas de energia. Escolha os tipos na Energy Zone."); return; }
     if (cardIds.length >= 20) { toast.error("Deck já tem 20 cartas"); return; }
     const existing = cardIds.filter(cid => {
       const c = cardsById[cid];
@@ -69,7 +73,10 @@ export default function DeckBuilderPage() {
     setSaving(true);
     try {
       await api.put(`/decks/${id}`, {
-        name: deck.name, description: deck.description || "", card_ids: cardIds
+        name: deck.name,
+        description: deck.description || "",
+        card_ids: cardIds,
+        energy_types: deckEnergyTypes
       });
       toast.success("Deck salvo");
       await loadAnalysis();
@@ -111,17 +118,37 @@ export default function DeckBuilderPage() {
   // Validation warnings
   const warnings = useMemo(() => {
     const w = [];
-    if (cardIds.length > 20) w.push(`Deck tem ${cardIds.length} cartas (máximo 20)`);
+    if (cardIds.length !== 20) w.push(`Deck de duelo deve ter 20 cartas (${cardIds.length}/20)`);
     const nameGroups = {};
+    let hasBasic = false;
     cardIds.forEach(cid => {
       const c = cardsById[cid];
-      if (c) nameGroups[c.name] = (nameGroups[c.name] || 0) + 1;
+      if (!c) return;
+      nameGroups[c.name] = (nameGroups[c.name] || 0) + 1;
+      if (c.card_type === "Personagem" && !c.is_evolution) hasBasic = true;
+      if (c.card_type === "Energia") w.push(`Remova "${c.name}": energia agora vem da Energy Zone.`);
     });
     Object.entries(nameGroups).forEach(([n, c]) => {
       if (c > 2) w.push(`'${n}' aparece ${c} vezes (máximo 2)`);
     });
+    if (!hasBasic) w.push("O deck precisa ter pelo menos uma carta básica.");
+    if (deckEnergyTypes.length === 0) w.push("Escolha pelo menos um tipo de energia para a Energy Zone.");
     return w;
-  }, [cardIds, cardsById]);
+  }, [cardIds, cardsById, deckEnergyTypes]);
+
+  const toggleDeckEnergy = (energyType) => {
+    setDeck(current => {
+      const currentTypes = current.energy_types?.length ? current.energy_types : ["Universal"];
+      const nextTypes = currentTypes.includes(energyType)
+        ? currentTypes.filter(type => type !== energyType)
+        : [...currentTypes, energyType];
+
+      return {
+        ...current,
+        energy_types: nextTypes.length ? nextTypes : currentTypes
+      };
+    });
+  };
 
   if (loading || !deck) return <div className="p-8 flex items-center justify-center"><Loader2 className="animate-spin text-indigo-400" /></div>;
 
@@ -162,6 +189,36 @@ export default function DeckBuilderPage() {
           </div>
         </div>
       )}
+
+      <section className="glass rounded-xl p-4 mb-6">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h3 className="text-sm uppercase tracking-widest text-slate-400">Energy Zone</h3>
+            <p className="text-xs text-slate-500 mt-1">
+              Escolha os tipos que este deck pode gerar automaticamente durante o duelo.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {ENERGY_TYPES.map(energyType => {
+              const active = deckEnergyTypes.includes(energyType);
+              return (
+                <button
+                  key={energyType}
+                  type="button"
+                  onClick={() => toggleDeckEnergy(energyType)}
+                  className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    active
+                      ? "border-indigo-400 bg-indigo-500/20 text-indigo-100"
+                      : "border-slate-700 bg-slate-950 text-slate-400 hover:text-white"
+                  }`}
+                >
+                  {energyType}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </section>
 
       <div className="grid lg:grid-cols-12 gap-6">
         {/* Library */}

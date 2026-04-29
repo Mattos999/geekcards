@@ -13,6 +13,7 @@ import DeckBuilderPage from "./pages/DeckBuilderPage";
 import NaturesPage from "./pages/NaturesPage";
 import CommunityPage from "./pages/CommunityPage";
 import AdminModerationPage from "./pages/AdminModerationPage";
+import DuelPage from "./pages/DuelPage";
 import { Loader2 } from "lucide-react";
 
 function Protected({ children }) {
@@ -47,6 +48,7 @@ function App() {
             <Route path="/cards/:id/edit" element={<Protected><CardBuilderPage /></Protected>} />
             <Route path="/decks" element={<Protected><DeckListPage /></Protected>} />
             <Route path="/decks/:id" element={<Protected><DeckBuilderPage /></Protected>} />
+            <Route path="/duelo" element={<Protected><DuelPage /></Protected>} />
             <Route path="/naturezas" element={<Protected><NaturesPage /></Protected>} />
             <Route path="/comunidade" element={<Protected><CommunityPage /></Protected>} />
             <Route path="/admin/moderacao" element={<Protected><AdminModerationPage /></Protected>} />

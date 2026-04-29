@@ -1,18 +1,120 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, formatApiError } from "../lib/api";
 import { NATURES, NATURE_COLORS, CARD_TYPES, ENERGY_TYPES, computeEffectiveWeaknesses } from "../lib/natures";
 import { GameCard } from "../components/GameCard";
 import { EnergyCostSymbols } from "../components/EnergyCostSymbols";
 import { normalizeAbilityEnergyCosts, sanitizeEnergyCosts, totalEnergyCost } from "../lib/energyCosts";
+import {
+  EFFECT_TYPES,
+  EFFECT_CONDITION_LABELS,
+  EFFECT_CONDITIONS,
+  DURATION_LABELS,
+  DURATIONS,
+  TARGET_LABELS,
+  TARGETS,
+  effectSummary,
+  effectTypeLabel,
+  normalizeEffects,
+} from "../lib/cardEffects";
 import { Upload, Save, Trash2, X, Plus, Zap } from "lucide-react";
 import { toast } from "sonner";
 
 const BLANK = {
   name: "", card_type: "Personagem", natures: [], rarity: 0, is_alpha: false, is_evolution: false, evolution_number: "",
-  hp: 100, recuo: 1, abilities: [], energy_type: null, image_url: null, description: "",
+  evolves_from_card_id: "", evolves_from_name: "",
+  hp: 100, recuo: 1, abilities: [], effects: [], passive_effects: [], speed: "", attach_to: "",
+  energy_type: null, image_url: null, description: "",
   public_status: "private"
 };
+
+const BLANK_EFFECT = {
+  type: EFFECT_TYPES.DAMAGE,
+  target: TARGETS.OPPONENT_ACTIVE,
+  duration: DURATIONS.INSTANT,
+  amount: 0,
+  energy_type: "",
+  condition: EFFECT_CONDITIONS.ALWAYS,
+};
+
+const getEvolutionStage = card => {
+  if (!card?.is_evolution) return 1;
+  const stages = { I: 2, II: 2, III: 3, IV: 4 };
+  return stages[String(card.evolution_number || "II").toUpperCase()] || 2;
+};
+
+const EffectControls = ({ effect, onChange, onAdd }) => (
+  <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_1fr_1fr_5rem_auto]">
+    <select
+      value={effect.type}
+      onChange={e => onChange("type", e.target.value)}
+      className="min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+    >
+      {Object.values(EFFECT_TYPES).map(type => (
+        <option key={type} value={type}>{effectTypeLabel(type)}</option>
+      ))}
+    </select>
+    <select
+      value={effect.target}
+      onChange={e => onChange("target", e.target.value)}
+      className="min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+    >
+      {Object.values(TARGETS).map(target => (
+        <option key={target} value={target}>{TARGET_LABELS[target]}</option>
+      ))}
+    </select>
+    <select
+      value={effect.duration || DURATIONS.INSTANT}
+      onChange={e => onChange("duration", e.target.value)}
+      className="min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+    >
+      {Object.values(DURATIONS).map(duration => (
+        <option key={duration} value={duration}>{DURATION_LABELS[duration]}</option>
+      ))}
+    </select>
+    <select
+      value={effect.condition || EFFECT_CONDITIONS.ALWAYS}
+      onChange={e => onChange("condition", e.target.value)}
+      className="min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+    >
+      {Object.values(EFFECT_CONDITIONS).map(condition => (
+        <option key={condition || "ALWAYS"} value={condition}>{EFFECT_CONDITION_LABELS[condition]}</option>
+      ))}
+    </select>
+    <input
+      type="number"
+      min={0}
+      value={effect.amount}
+      onChange={e => onChange("amount", e.target.value)}
+      className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:outline-none"
+    />
+    <button
+      type="button"
+      onClick={onAdd}
+      className="inline-flex items-center justify-center rounded-lg border border-indigo-500/40 bg-indigo-500/20 px-3 text-xs text-indigo-200 hover:bg-indigo-500/30"
+    >
+      <Plus size={13} />
+    </button>
+  </div>
+);
+
+const EffectsList = ({ effects, onRemove }) => (
+  normalizeEffects(effects).length > 0 && (
+    <div className="flex flex-wrap gap-2">
+      {normalizeEffects(effects).map((effect, idx) => (
+        <button
+          key={`${effect.type}-${effect.target}-${idx}`}
+          type="button"
+          onClick={() => onRemove(idx)}
+          className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-300 hover:border-rose-500/60 hover:text-rose-200"
+        >
+          {effectSummary(effect)}
+          <X size={11} />
+        </button>
+      ))}
+    </div>
+  )
+);
 
 export default function CardBuilderPage() {
   const navigate = useNavigate();
@@ -22,6 +124,14 @@ export default function CardBuilderPage() {
   const [uploading, setUploading] = useState(false);
   const [abilityDraft, setAbilityDraft] = useState(null);
   const [editingAbilityIndex, setEditingAbilityIndex] = useState(null);
+  const [evolutionOptions, setEvolutionOptions] = useState([]);
+  const [cardEffectDraft, setCardEffectDraft] = useState(BLANK_EFFECT);
+  const [passiveEffectDraft, setPassiveEffectDraft] = useState({
+    ...BLANK_EFFECT,
+    type: EFFECT_TYPES.BUFF_EQUIPPED_CARD_DAMAGE,
+    target: TARGETS.EQUIPPED_CARD,
+    condition: EFFECT_CONDITIONS.EQUIPPED_CARD_DEALS_DAMAGE,
+  });
 
   useEffect(() => {
     if (id) (async () => {
@@ -32,7 +142,34 @@ export default function CardBuilderPage() {
     })();
   }, [id]);
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get("/cards");
+        setEvolutionOptions(data);
+      } catch (e) { toast.error(formatApiError(e)); }
+    })();
+  }, []);
+
   const set = (k, v) => setCard(c => ({ ...c, [k]: v }));
+
+  const validEvolutionTargets = useMemo(() => {
+    const previousStage = getEvolutionStage(card) - 1;
+    return evolutionOptions.filter(option =>
+      option.id !== id &&
+      option.card_type === "Personagem" &&
+      getEvolutionStage(option) === previousStage
+    );
+  }, [card, evolutionOptions, id]);
+
+  const setEvolutionTarget = targetId => {
+    const target = evolutionOptions.find(option => option.id === targetId);
+    setCard(current => ({
+      ...current,
+      evolves_from_card_id: target?.id || "",
+      evolves_from_name: target?.name || ""
+    }));
+  };
 
   const toggleNature = (n) => {
     setCard(c => {
@@ -48,6 +185,8 @@ export default function CardBuilderPage() {
     description: ability.description || "",
     damage: ability.damage ?? 0,
     energy_costs: normalizeAbilityEnergyCosts(ability),
+    effects: normalizeEffects(ability.effects),
+    effect_to_add: { ...BLANK_EFFECT, amount: ability.damage ?? 0 },
     energy_type_to_add: ENERGY_TYPES[0],
     energy_amount_to_add: 1
   });
@@ -84,11 +223,59 @@ export default function CardBuilderPage() {
     }));
   };
 
+  const updateDraftEffect = (field, value) => {
+    setAbilityDraft(d => ({
+      ...d,
+      effect_to_add: {
+        ...(d.effect_to_add || BLANK_EFFECT),
+        [field]: field === "amount" ? parseInt(value, 10) || 0 : value,
+      }
+    }));
+  };
+
+  const addDraftEffect = () => {
+    setAbilityDraft(d => ({
+      ...d,
+      effects: [
+        ...normalizeEffects(d.effects),
+        {
+          ...(d.effect_to_add || BLANK_EFFECT),
+          duration: d.effect_to_add?.duration || DURATIONS.INSTANT,
+          amount: parseInt(d.effect_to_add?.amount, 10) || 0,
+        }
+      ],
+      effect_to_add: { ...BLANK_EFFECT },
+    }));
+  };
+
+  const removeDraftEffect = idx => {
+    setAbilityDraft(d => ({
+      ...d,
+      effects: normalizeEffects(d.effects).filter((_, i) => i !== idx)
+    }));
+  };
+
+  const addCardEffect = (field, effect) => {
+    setCard(c => ({
+      ...c,
+      [field]: [...normalizeEffects(c[field]), effect]
+    }));
+  };
+
+  const removeCardEffect = (field, idx) => {
+    setCard(c => ({
+      ...c,
+      [field]: normalizeEffects(c[field]).filter((_, i) => i !== idx)
+    }));
+  };
+
   const commitAbility = () => {
   if (!abilityDraft.name.trim()) { toast.error("Nome da habilidade é obrigatório"); return; }
 
   const energyCosts = sanitizeEnergyCosts(abilityDraft.energy_costs);
   const legacyEnergyCost = totalEnergyCost(energyCosts);
+  const effects = normalizeEffects(abilityDraft.effects);
+  const damage = effects.find(effect => effect.type === EFFECT_TYPES.DAMAGE)?.amount ?? (abilityDraft.damage ?? 0);
 
   if (editingAbilityIndex !== null) {
     // EDITAR habilidade existente
@@ -98,9 +285,10 @@ export default function CardBuilderPage() {
       updated[editingAbilityIndex] = {
         name: abilityDraft.name.trim(),
         description: abilityDraft.description.trim(),
-        damage: abilityDraft.damage ?? 0,
+        damage,
         energy_cost: legacyEnergyCost,
-        energy_costs: energyCosts
+        energy_costs: energyCosts,
+        effects
       };
 
       return { ...c, abilities: updated };
@@ -122,9 +310,10 @@ export default function CardBuilderPage() {
         {
           name: abilityDraft.name.trim(),
           description: abilityDraft.description.trim(),
-          damage: abilityDraft.damage ?? 0,
+          damage,
           energy_cost: legacyEnergyCost,
-          energy_costs: energyCosts
+          energy_costs: energyCosts,
+          effects
         }
       ]
     }));
@@ -161,10 +350,27 @@ export default function CardBuilderPage() {
 
   const save = async () => {
     if (!card.name.trim()) { toast.error("Nome é obrigatório"); return; }
+    if (card.card_type === "Personagem" && card.is_evolution && !card.evolves_from_card_id) {
+      toast.error("Escolha de qual carta esta evolucao vem");
+      return;
+    }
     setLoading(true);
     try {
       const payload = { ...card };
       if (payload.card_type !== "Energia") payload.energy_type = null;
+      payload.effects = normalizeEffects(payload.effects);
+      payload.passive_effects = normalizeEffects(payload.passive_effects);
+      payload.abilities = (payload.abilities || []).map(ability => ({
+        ...ability,
+        effects: normalizeEffects(ability.effects),
+      }));
+      if (!payload.is_evolution) {
+        payload.evolves_from_card_id = null;
+        payload.evolves_from_name = null;
+      } else {
+        const target = evolutionOptions.find(option => option.id === payload.evolves_from_card_id);
+        payload.evolves_from_name = target?.name || payload.evolves_from_name || "";
+      }
       if (id) await api.put(`/cards/${id}`, payload);
       else await api.post("/cards", payload);
       toast.success(id ? "Carta atualizada" : "Carta criada");
@@ -241,7 +447,16 @@ export default function CardBuilderPage() {
         type="checkbox"
         id="evolution"
         checked={card.is_evolution}
-        onChange={e => set("is_evolution", e.target.checked)}
+        onChange={e => {
+          const checked = e.target.checked;
+          setCard(current => ({
+            ...current,
+            is_evolution: checked,
+            evolution_number: checked ? (current.evolution_number === "I" ? "II" : (current.evolution_number || "II")) : "",
+            evolves_from_card_id: checked ? current.evolves_from_card_id : "",
+            evolves_from_name: checked ? current.evolves_from_name : ""
+          }));
+        }}
         className="w-4 h-4 rounded"
       />
       <span className="text-sm">Evolução</span>
@@ -253,14 +468,37 @@ export default function CardBuilderPage() {
           Nível de Evolução
         </label>
         <select
-          value={card.evolution_number}
-          onChange={e => set("evolution_number", e.target.value)}
+          value={card.evolution_number === "I" ? "II" : (card.evolution_number || "II")}
+          onChange={e => setCard(current => ({
+            ...current,
+            evolution_number: e.target.value,
+            evolves_from_card_id: "",
+            evolves_from_name: ""
+          }))}
           className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2"
         >
-          {["", "I", "II", "III", "IV"].map(r => (
+          {["II", "III", "IV"].map(r => (
             <option key={r} value={r}>{r}</option>
           ))}
         </select>
+        <label className="mt-3 block text-xs text-slate-400 mb-1.5">
+          Evolui de
+        </label>
+        <select
+          value={card.evolves_from_card_id || ""}
+          onChange={e => setEvolutionTarget(e.target.value)}
+          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2"
+        >
+          <option value="">Selecione a carta base</option>
+          {validEvolutionTargets.map(option => (
+            <option key={option.id} value={option.id}>{option.name}</option>
+          ))}
+        </select>
+        {validEvolutionTargets.length === 0 && (
+          <div className="mt-1 text-[11px] text-amber-300">
+            Crie a carta do estagio anterior antes de vincular esta evolucao.
+          </div>
+        )}
       </div>
     )}
   </div>
@@ -373,6 +611,11 @@ export default function CardBuilderPage() {
                         <span className="text-amber-400">⚔ {ab.damage ?? 0}</span>
                         <EnergyCostSymbols ability={ab} size="xs" />
                       </div>
+                      {normalizeEffects(ab.effects).length > 0 && (
+                        <div className="mt-1 text-[10px] text-slate-500">
+                          {normalizeEffects(ab.effects).map(effectSummary).join(" | ")}
+                        </div>
+                      )}
                     </div>
                     <button
                       type="button"
@@ -469,6 +712,18 @@ export default function CardBuilderPage() {
                 </div>
                 <div>
                   <label className="block text-xs text-slate-400 mb-1.5">Descrição</label>
+                  <div className="mb-3 rounded-lg border border-slate-800 bg-slate-950/50 p-3 space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <label className="text-xs text-slate-400">Efeitos</label>
+                      <span className="text-[10px] text-slate-500">{normalizeEffects(abilityDraft.effects).length} adicionados</span>
+                    </div>
+                    <EffectControls
+                      effect={abilityDraft.effect_to_add || BLANK_EFFECT}
+                      onChange={updateDraftEffect}
+                      onAdd={addDraftEffect}
+                    />
+                    <EffectsList effects={abilityDraft.effects} onRemove={removeDraftEffect} />
+                  </div>
                   <textarea
                     data-testid="ability-description-input"
                     value={abilityDraft.description}
@@ -495,6 +750,67 @@ export default function CardBuilderPage() {
               <p className="text-xs text-slate-600 italic">Nenhuma habilidade adicionada.</p>
             )}
           </section>
+
+          {["Item", "Mestre"].includes(card.card_type) && (
+            <section className="glass rounded-xl p-6">
+              <div className="mb-4">
+                <h3 className="text-sm uppercase tracking-widest text-slate-400">Efeitos da Carta</h3>
+                <p className="mt-1 text-xs text-slate-500">Usados quando a carta for jogada no duelo.</p>
+              </div>
+              <div className="space-y-3">
+                <EffectControls
+                  effect={cardEffectDraft}
+                  onChange={(field, value) => setCardEffectDraft(current => ({
+                    ...current,
+                    [field]: field === "amount" ? parseInt(value, 10) || 0 : value,
+                  }))}
+                  onAdd={() => {
+                    addCardEffect("effects", cardEffectDraft);
+                    setCardEffectDraft({ ...BLANK_EFFECT });
+                  }}
+                />
+                <EffectsList effects={card.effects} onRemove={idx => removeCardEffect("effects", idx)} />
+              </div>
+            </section>
+          )}
+
+          {card.card_type === "Equipamento" && (
+            <section className="glass rounded-xl p-6">
+              <div className="mb-4">
+                <h3 className="text-sm uppercase tracking-widest text-slate-400">Equipamento</h3>
+                <p className="mt-1 text-xs text-slate-500">Efeitos passivos ficam anexados ao personagem equipado.</p>
+              </div>
+              <div className="mb-4">
+                <label className="block text-xs text-slate-400 mb-1.5">Anexar em</label>
+                <select
+                  value={card.attach_to || "SELF_CHARACTER"}
+                  onChange={e => set("attach_to", e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2"
+                >
+                  <option value="SELF_CHARACTER">Seu personagem</option>
+                </select>
+              </div>
+              <div className="space-y-3">
+                <EffectControls
+                  effect={passiveEffectDraft}
+                  onChange={(field, value) => setPassiveEffectDraft(current => ({
+                    ...current,
+                    [field]: field === "amount" ? parseInt(value, 10) || 0 : value,
+                  }))}
+                  onAdd={() => {
+                    addCardEffect("passive_effects", passiveEffectDraft);
+                    setPassiveEffectDraft({
+                      ...BLANK_EFFECT,
+                      type: EFFECT_TYPES.BUFF_EQUIPPED_CARD_DAMAGE,
+                      target: TARGETS.EQUIPPED_CARD,
+                      condition: EFFECT_CONDITIONS.EQUIPPED_CARD_DEALS_DAMAGE,
+                    });
+                  }}
+                />
+                <EffectsList effects={card.passive_effects} onRemove={idx => removeCardEffect("passive_effects", idx)} />
+              </div>
+            </section>
+          )}
 
           {/* Image */}
           <section className="glass rounded-xl p-6">

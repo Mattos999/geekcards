@@ -98,6 +98,19 @@ else if (card.card_type === "Mestre") {
 }
 
 // =========================
+// EQUIPAMENTO
+// =========================
+
+else if (card.card_type === "Equipamento") {
+
+  borderColor = RARITY_COLORS.equipamento;
+
+  backgroundStyle =
+    `linear-gradient(145deg, ${RARITY_COLORS.equipamento}33, #0F172A 60%)`;
+
+}
+
+// =========================
 // ENERGIA (CORRIGIDO AQUI)
 // =========================
 
