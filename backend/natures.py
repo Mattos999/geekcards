@@ -47,6 +47,6 @@ def compute_effective_weaknesses(card_natures: list[str]) -> list[str]:
     return sorted(weaknesses)
 
 
-CARD_TYPES = ["Personagem", "Item", "Mestre", "Energia"]
+CARD_TYPES = ["Personagem", "Item", "Mestre", "Equipamento", "Energia"]
 ENERGY_TYPES = ["Superior", "Natural", "Interior", "Universal"]
 RARITIES = [1, 2, 3]

@@ -7,7 +7,7 @@ load_dotenv(ROOT_DIR / '.env')
 import os
 import uuid
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, UploadFile, File, Query
@@ -48,12 +48,25 @@ class EnergyCost(BaseModel):
     amount: int
 
 
+class Effect(BaseModel):
+    type: str
+    target: str = "OPPONENT_ACTIVE"
+    duration: str = "INSTANT"
+    amount: int = 0
+    energy_type: Optional[str] = None
+    nature: Optional[str] = None
+    card_name: Optional[str] = None
+    tag: Optional[str] = None
+    condition: Optional[str] = None
+
+
 class Ability(BaseModel):
     name: str
     description: str
     damage: int = 0
     energy_cost: int = 0
     energy_costs: List[EnergyCost] = []
+    effects: List[Effect] = []
 
 
 class UserCreate(BaseModel):
@@ -74,6 +87,11 @@ class UserOut(BaseModel):
     role: str = "user"
 
 
+class UserPresenceOut(UserOut):
+    is_online: bool = False
+    last_seen: Optional[str] = None
+
+
 class ProfileUpdate(BaseModel):
     name: str
     current_password: Optional[str] = None
@@ -86,19 +104,25 @@ class AdminRoleUpdate(BaseModel):
 
 class CardCreate(BaseModel):
     name: str
-    card_type: str  # Personagem, Item, Mestre, Energia
+    card_type: str  # Personagem, Item, Mestre, Equipamento, Energia
     natures: List[str] = []
     rarity: int = 0  # 0, 1, 2, 3, 4
     is_alpha: bool = False
     hp: int = 0
     recuo: int = 0
     abilities: List[Ability] = []
+    effects: List[Effect] = []
+    passive_effects: List[Effect] = []
+    speed: Optional[str] = None
+    attach_to: Optional[str] = None
     energy_type: Optional[str] = None  # for Energia cards
     image_url: Optional[str] = None
     description: str = ""
     public_status: str = "private"  # private | pending | approved | rejected
     is_evolution: bool = False
     evolution_number: Optional[str] = None
+    evolves_from_card_id: Optional[str] = None
+    evolves_from_name: Optional[str] = None
 
 
 class Card(CardCreate):
@@ -111,6 +135,7 @@ class DeckCreate(BaseModel):
     name: str
     description: str = ""
     card_ids: List[str] = []  # list of card.id (duplicates allowed)
+    energy_types: List[str] = []
 
 
 class Deck(DeckCreate):
@@ -125,8 +150,37 @@ def normalize_card_payload(body: CardCreate) -> dict:
 
     if not payload.get("is_evolution"):
         payload["evolution_number"] = None
+        payload["evolves_from_card_id"] = None
+        payload["evolves_from_name"] = None
+    elif payload.get("evolution_number") == "I":
+        payload["evolution_number"] = "II"
     elif not isinstance(payload.get("evolution_number"), str) or not payload.get("evolution_number"):
-        payload["evolution_number"] = "I"
+        payload["evolution_number"] = "II"
+
+    def normalize_effects(effects: list[dict]) -> list[dict]:
+        normalized = []
+        for effect in effects or []:
+            effect_type = effect.get("type")
+            if not effect_type:
+                continue
+            amount = effect.get("amount") or 0
+            if amount < 0:
+                raise HTTPException(status_code=400, detail="Valor do efeito nao pode ser negativo")
+            normalized.append({
+                "type": effect_type,
+                "target": effect.get("target") or "OPPONENT_ACTIVE",
+                "duration": effect.get("duration") or "INSTANT",
+                "amount": amount,
+                "energy_type": effect.get("energy_type") or None,
+                "nature": effect.get("nature") or None,
+                "card_name": effect.get("card_name") or None,
+                "tag": effect.get("tag") or None,
+                "condition": effect.get("condition") or None,
+            })
+        return normalized
+
+    payload["effects"] = normalize_effects(payload.get("effects", []))
+    payload["passive_effects"] = normalize_effects(payload.get("passive_effects", []))
 
     for ability in payload.get("abilities", []):
         energy_costs = ability.get("energy_costs") or []
@@ -140,10 +194,62 @@ def normalize_card_payload(body: CardCreate) -> dict:
         if energy_costs:
             ability["energy_cost"] = sum(cost["amount"] for cost in energy_costs)
 
+        ability["effects"] = normalize_effects(ability.get("effects", []))
+        if ability.get("damage", 0) > 0 and not any(effect["type"] == "DAMAGE" for effect in ability["effects"]):
+            ability["effects"].insert(0, {
+                "type": "DAMAGE",
+                "target": "OPPONENT_ACTIVE",
+                "duration": "INSTANT",
+                "amount": ability["damage"],
+                "energy_type": None,
+                "nature": None,
+                "card_name": None,
+                "tag": None,
+                "condition": None,
+            })
+
+    return payload
+
+
+def normalize_deck_payload(body: DeckCreate) -> dict:
+    payload = body.model_dump()
+    energy_types = [energy for energy in payload.get("energy_types", []) if energy in ENERGY_TYPES]
+    payload["energy_types"] = energy_types or ["Universal"]
     return payload
 
 
 # ============ Auth endpoints ============
+ONLINE_WINDOW_SECONDS = 90
+
+
+def utc_now():
+    return datetime.now(timezone.utc)
+
+
+def parse_datetime(value: Optional[str]):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def is_online(last_seen: Optional[str]) -> bool:
+    seen_at = parse_datetime(last_seen)
+    if not seen_at:
+        return False
+    if seen_at.tzinfo is None:
+        seen_at = seen_at.replace(tzinfo=timezone.utc)
+    return utc_now() - seen_at <= timedelta(seconds=ONLINE_WINDOW_SECONDS)
+
+
+async def touch_user_presence(user_id: str):
+    now = utc_now().isoformat()
+    await db.users.update_one({"id": user_id}, {"$set": {"last_seen": now}})
+    return now
+
+
 def set_auth_cookie(response: Response, token: str):
     response.set_cookie(
         key="access_token", value=token, httponly=True,
@@ -158,11 +264,13 @@ async def register(body: UserCreate, response: Response):
     if existing:
         raise HTTPException(status_code=400, detail="Email já cadastrado")
     user_id = str(uuid.uuid4())
+    now = utc_now().isoformat()
     user_doc = {
         "id": user_id, "email": email, "name": body.name,
         "role": "user",
         "password_hash": hash_password(body.password),
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": now,
+        "last_seen": now,
     }
     await db.users.insert_one(user_doc)
     token = create_access_token(user_id, email)
@@ -176,6 +284,7 @@ async def login(body: UserLogin, response: Response):
     user = await db.users.find_one({"email": email})
     if not user or not verify_password(body.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Email ou senha inválidos")
+    await touch_user_presence(user["id"])
     token = create_access_token(user["id"], email)
     set_auth_cookie(response, token)
     return {"id": user["id"], "email": email, "name": user["name"], "role": user.get("role", "user"), "token": token}
@@ -190,7 +299,37 @@ async def logout(response: Response):
 @api_router.get("/auth/me")
 async def me(request: Request):
     user = await get_current_user(request, db)
+    await touch_user_presence(user["id"])
     return {"id": user["id"], "email": user["email"], "name": user["name"], "role": user.get("role", "user")}
+
+
+@api_router.post("/presence/heartbeat")
+async def presence_heartbeat(request: Request):
+    user = await get_current_user(request, db)
+    last_seen = await touch_user_presence(user["id"])
+    return {"ok": True, "last_seen": last_seen, "is_online": True}
+
+
+@api_router.get("/users/presence", response_model=List[UserPresenceOut])
+async def list_user_presence(request: Request):
+    current_user = await get_current_user(request, db)
+    await touch_user_presence(current_user["id"])
+    users = await db.users.find(
+        {},
+        {"_id": 0, "password_hash": 0}
+    ).sort("name", 1).to_list(1000)
+
+    return [
+        {
+            "id": user["id"],
+            "email": user["email"],
+            "name": user.get("name", ""),
+            "role": user.get("role", "user"),
+            "last_seen": user.get("last_seen"),
+            "is_online": is_online(user.get("last_seen")),
+        }
+        for user in users
+    ]
 
 
 @api_router.put("/auth/me")
@@ -289,8 +428,8 @@ async def create_card(body: CardCreate, request: Request):
         raise HTTPException(status_code=400, detail="Máximo de 3 naturezas por carta")
     if body.card_type not in CARD_TYPES:
         raise HTTPException(status_code=400, detail="Tipo de carta inválido")
-    if body.rarity not in [1, 2, 3, 4]:
-        raise HTTPException(status_code=400, detail="Raridade deve ser 1, 2, 3 ou 4")
+    if body.rarity not in [0, 1, 2, 3, 4]:
+        raise HTTPException(status_code=400, detail="Raridade deve ser 0, 1, 2, 3 ou 4")
     if len(body.abilities) > 3:
         raise HTTPException(status_code=400, detail="Máximo de 3 habilidades por carta")
 
@@ -478,8 +617,14 @@ async def clone_card(card_id: str, request: Request):
     if original["user_id"] == user["id"]:
         raise HTTPException(status_code=400, detail="Esta carta já é sua")
     new_id = str(uuid.uuid4())
-    clone = {**original, "id": new_id, "user_id": user["id"], "public_status": "private",
-             "created_at": datetime.now(timezone.utc).isoformat()}
+    clone = {
+        **original,
+        "id": new_id,
+        "source_card_id": original.get("source_card_id") or original["id"],
+        "user_id": user["id"],
+        "public_status": "private",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
     await db.cards.insert_one(clone)
     clone.pop("_id", None)
     return clone
@@ -607,18 +752,27 @@ async def admin_delete_card(
 def _validate_deck_rules(card_ids: list[str], cards_by_id: dict) -> list[str]:
     """Returns list of validation warnings (not errors, deck can be saved mid-build)."""
     warnings = []
-    if len(card_ids) > 20:
-        warnings.append(f"Deck tem {len(card_ids)} cartas (máximo 20).")
+    if len(card_ids) != 20:
+        warnings.append(f"Deck de duelo deve ter 20 cartas ({len(card_ids)}/20).")
     # Count occurrences. Rule: max 2 of same named card. Exception: can have 2 if one is ALPHA.
     name_groups: dict[str, list[dict]] = {}
     for cid in card_ids:
         card = cards_by_id.get(cid)
         if not card:
             continue
+        if card.get("card_type") == "Energia":
+            warnings.append(f"Remova '{card.get('name', 'Energia')}': energia vem da Energy Zone.")
         name_groups.setdefault(card["name"], []).append(card)
     for name, group in name_groups.items():
         if len(group) > 2:
             warnings.append(f"'{name}' aparece {len(group)} vezes (máximo 2).")
+    if not any(
+        card.get("card_type") == "Personagem" and not card.get("is_evolution")
+        for cid in card_ids
+        for card in [cards_by_id.get(cid)]
+        if card
+    ):
+        warnings.append("O deck precisa ter pelo menos uma carta básica.")
     return warnings
 
 
@@ -627,7 +781,7 @@ async def create_deck(body: DeckCreate, request: Request):
     user = await get_current_user(request, db)
     deck_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
-    doc = body.model_dump()
+    doc = normalize_deck_payload(body)
     doc.update({"id": deck_id, "user_id": user["id"], "created_at": now, "updated_at": now})
     await db.decks.insert_one(doc)
     doc.pop("_id", None)
@@ -647,6 +801,7 @@ async def get_deck(deck_id: str, request: Request):
     deck = await db.decks.find_one({"id": deck_id, "user_id": user["id"]}, {"_id": 0})
     if not deck:
         raise HTTPException(status_code=404, detail="Deck não encontrado")
+    deck["energy_types"] = [energy for energy in deck.get("energy_types", []) if energy in ENERGY_TYPES] or ["Universal"]
     # Fetch all cards referenced
     unique_ids = list(set(deck.get("card_ids", [])))
     cards = []
@@ -663,7 +818,7 @@ async def update_deck(deck_id: str, body: DeckCreate, request: Request):
     existing = await db.decks.find_one({"id": deck_id, "user_id": user["id"]})
     if not existing:
         raise HTTPException(status_code=404, detail="Deck não encontrado")
-    update = body.model_dump()
+    update = normalize_deck_payload(body)
     update["updated_at"] = datetime.now(timezone.utc).isoformat()
     await db.decks.update_one({"id": deck_id}, {"$set": update})
     res = await db.decks.find_one({"id": deck_id}, {"_id": 0})
@@ -685,6 +840,7 @@ async def analyze_deck(deck_id: str, request: Request):
     deck = await db.decks.find_one({"id": deck_id, "user_id": user["id"]}, {"_id": 0})
     if not deck:
         raise HTTPException(status_code=404, detail="Deck não encontrado")
+    deck["energy_types"] = [energy for energy in deck.get("energy_types", []) if energy in ENERGY_TYPES] or ["Universal"]
     card_ids = deck.get("card_ids", [])
     unique_ids = list(set(card_ids))
     cards_list = []
@@ -695,7 +851,7 @@ async def analyze_deck(deck_id: str, request: Request):
     # Distribution
     nature_counts = {n: 0 for n in NATURES}
     type_counts = {t: 0 for t in CARD_TYPES}
-    rarity_counts = {"1": 0, "2": 0, "3": 0, "4":0, "alpha": 0}
+    rarity_counts = {"0": 0, "1": 0, "2": 0, "3": 0, "4": 0, "alpha": 0}
     total_hp = 0
     total_damage = 0
     n_chars = 0
@@ -711,11 +867,20 @@ async def analyze_deck(deck_id: str, request: Request):
         if card.get("is_alpha"):
             rarity_counts["alpha"] += 1
         else:
-            rarity_counts[str(card.get("rarity", 1))] += 1
+            rarity_key = str(card.get("rarity", 0))
+            rarity_counts[rarity_key] = rarity_counts.get(rarity_key, 0) + 1
         if card.get("card_type") == "Personagem":
             n_chars += 1
             total_hp += card.get("hp", 0)
-            total_damage += card.get("damage", 0)
+            abilities = card.get("abilities") or []
+            if isinstance(abilities, list):
+                total_damage += sum(
+                    ability.get("damage", 0)
+                    for ability in abilities
+                    if isinstance(ability, dict)
+                )
+            else:
+                total_damage += card.get("damage", 0)
             for n in card.get("natures", []):
                 nature_counts[n] = nature_counts.get(n, 0) + 1
                 for beaten in WEAKNESS_MAP.get(n, []):  # who n is weak to -> n can be beaten by these
