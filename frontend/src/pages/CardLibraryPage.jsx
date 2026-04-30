@@ -11,14 +11,12 @@ const statusLabels = {
   approved: "Publica",
   pending: "Em analise",
   rejected: "Rejeitada",
-  private: "Privada",
 };
 
 const statusColors = {
   approved: "#34D399",
   pending: "#FBBF24",
   rejected: "#F87171",
-  private: "#94A3B8",
 };
 
 export default function CardLibraryPage() {
@@ -132,15 +130,21 @@ export default function CardLibraryPage() {
           {filtered.map(c => (
             <div key={c.id} className="animate-fade-in-up flex flex-col items-center gap-1.5">
               <GameCard card={c} size="md" onClick={() => setSelectedCard(c)} />
-              <div
-                className="text-[10px] text-center uppercase tracking-wider font-semibold"
-                style={{ color: statusColors[c.public_status] || statusColors.private }}
-              >
-                Situacao: {statusLabels[c.public_status] || c.public_status || "Privada"}
-              </div>
               {(c.can_edit === false || c.is_library_reference) && (
                 <div className="text-[10px] text-center uppercase tracking-wider font-semibold text-indigo-300">
                   Comunidade
+                </div>
+              )}
+              {c.public_status && c.public_status !== "private" && (
+                <div
+                  className="inline-flex items-center gap-1 text-[10px] text-center uppercase tracking-wider font-semibold"
+                  style={{ color: statusColors[c.public_status] || statusColors.rejected }}
+                >
+                  <span
+                    className="h-1.5 w-1.5 rounded-full"
+                    style={{ backgroundColor: statusColors[c.public_status] || statusColors.rejected }}
+                  />
+                  {statusLabels[c.public_status] || c.public_status}
                 </div>
               )}
               {c.can_edit !== false && !c.is_library_reference && (

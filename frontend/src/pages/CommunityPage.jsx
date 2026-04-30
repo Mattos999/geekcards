@@ -39,10 +39,10 @@ export default function CommunityPage() {
   };
 
   const statusClasses = {
-    approved: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
-    pending: "border-amber-500/30 bg-amber-500/10 text-amber-300",
-    rejected: "border-rose-500/30 bg-rose-500/10 text-rose-300",
-    private: "border-slate-600 bg-slate-800/60 text-slate-300"
+    approved: "#34D399",
+    pending: "#FBBF24",
+    rejected: "#F87171",
+    private: "#94A3B8"
   };
 
   // =========================
@@ -430,7 +430,15 @@ export default function CommunityPage() {
 
                 {user?.role === "admin" && (
 
-                  <div className={`w-48 text-[10px] text-center uppercase tracking-wider font-semibold rounded-md border px-2 py-1 ${statusClasses[c.public_status] || statusClasses.private}`}>
+                  <div
+                    className="inline-flex items-center gap-1 text-[10px] text-center uppercase tracking-wider font-semibold"
+                    style={{ color: statusClasses[c.public_status] || statusClasses.private }}
+                  >
+
+                    <span
+                      className="h-1.5 w-1.5 rounded-full"
+                      style={{ backgroundColor: statusClasses[c.public_status] || statusClasses.private }}
+                    />
 
                     {statusLabels[c.public_status] || c.public_status || "Privada"}
 
