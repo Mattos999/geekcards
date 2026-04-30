@@ -1743,6 +1743,10 @@ def _online_rule_condition_matches(state: dict, condition: dict, context: dict) 
         expected = str(value or "ACTIVE").upper()
         actual = "BENCH" if source_ref and source_ref.get("zone") == "bench" else "ACTIVE"
         return actual == expected
+    if condition_type == "TARGET_POSITION":
+        expected = str(value or "ACTIVE").upper()
+        actual = "BENCH" if target_ref and target_ref.get("zone") == "bench" else "ACTIVE"
+        return actual == expected
     if condition_type == "TARGET_NATURE_IN":
         values = _online_condition_values(value)
         return bool(target_card and any(nature in values for nature in target_card.get("natures") or []))

@@ -4,6 +4,10 @@ import { NATURES, NATURE_COLORS, CARD_TYPES, ENERGY_TYPES } from "../lib/natures
 import { EnergyCostSymbols } from "./EnergyCostSymbols";
 import { normalizeAbilityEnergyCosts, sanitizeEnergyCosts, totalEnergyCost } from "../lib/energyCosts";
 import {
+  ABILITY_CONDITION_LABELS,
+  ABILITY_CONDITION_TYPES,
+  ABILITY_TRIGGER_LABELS,
+  ABILITY_TRIGGERS,
   DURATIONS,
   DURATION_LABELS,
   EFFECT_CONDITIONS,
@@ -13,9 +17,11 @@ import {
   TARGET_LABELS,
   effectSummary,
   effectTypeLabel,
+  normalizeAbilityConditions,
   normalizeAbilityRules,
   normalizeEquipmentPassiveEffects,
   normalizeEffects,
+  ruleSummary,
 } from "../lib/cardEffects";
 import { Loader2, X, Plus, Zap, Upload } from "lucide-react";
 import { toast } from "sonner";
@@ -46,6 +52,28 @@ const BLANK_EFFECT = {
   tag: "",
   condition: EFFECT_CONDITIONS.ALWAYS,
 };
+
+const BLANK_RULE_CONDITION = {
+  type: ABILITY_CONDITION_TYPES.SOURCE_POSITION,
+  value: "ACTIVE",
+};
+
+const BLANK_RULE = {
+  trigger: ABILITY_TRIGGERS.ON_ATTACK,
+  conditions: [],
+  effects: [],
+  duration: DURATIONS.INSTANT,
+  condition_to_add: BLANK_RULE_CONDITION,
+  effect_to_add: BLANK_EFFECT,
+};
+
+const makeBlankRule = () => ({
+  ...BLANK_RULE,
+  conditions: [],
+  effects: [],
+  condition_to_add: { ...BLANK_RULE_CONDITION },
+  effect_to_add: { ...BLANK_EFFECT },
+});
 const EFFECT_ATTRIBUTES = [
   { value: "hp", label: "HP" },
   { value: "damage", label: "Dano" },
@@ -64,6 +92,7 @@ const EFFECT_FIELD_CONFIG = {
   [EFFECT_TYPES.BUFF_DAMAGE_BY_TAG]: ["target", "tag", "amount", "duration"],
   [EFFECT_TYPES.BUFF_DAMAGE_BY_ATTACHED_ENERGY]: ["target", "energy_type", "amount", "duration"],
   [EFFECT_TYPES.DOUBLE_DAMAGE_AGAINST_TYPE]: ["target", "nature", "duration"],
+  [EFFECT_TYPES.TAKE_DAMAGE_INSTEAD]: [],
   [EFFECT_TYPES.WEAKNESS_OVERRIDE]: ["target", "nature", "duration"],
   [EFFECT_TYPES.ENERGY_REQUIRED_TYPE]: ["target", "energy_type", "duration"],
   [EFFECT_TYPES.IF_BENCH_HAS_CARD]: ["card_name"],
@@ -317,6 +346,7 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
         effects: normalizeEffects(ab.effects),
         rules: normalizeAbilityRules(ab.rules),
         effect_to_add: { ...BLANK_EFFECT, amount: ab.damage ?? 0 },
+        rule_to_add: makeBlankRule(),
         energy_type_to_add: ENERGY_TYPES[0],
         energy_amount_to_add: 1,
       })),
@@ -433,7 +463,9 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
       ...form.abilities,
       {
         ...BLANK_ABILITY,
+        rules: [],
         effect_to_add: { ...BLANK_EFFECT },
+        rule_to_add: makeBlankRule(),
         energy_type_to_add: ENERGY_TYPES[0],
         energy_amount_to_add: 1,
       }
@@ -517,6 +549,116 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
     );
   };
 
+  const updateAbilityRuleDraft = (abilityIndex, field, value) => {
+    const ability = form.abilities[abilityIndex];
+    updateAbility(abilityIndex, "rule_to_add", {
+      ...(ability.rule_to_add || makeBlankRule()),
+      [field]: value,
+    });
+  };
+
+  const updateAbilityRuleConditionDraft = (abilityIndex, field, value) => {
+    const ability = form.abilities[abilityIndex];
+    const rule = ability.rule_to_add || makeBlankRule();
+    updateAbility(abilityIndex, "rule_to_add", {
+      ...rule,
+      condition_to_add: {
+        ...(rule.condition_to_add || BLANK_RULE_CONDITION),
+        [field]: value,
+      },
+    });
+  };
+
+  const addAbilityRuleCondition = abilityIndex => {
+    const ability = form.abilities[abilityIndex];
+    const rule = ability.rule_to_add || makeBlankRule();
+    const condition = rule.condition_to_add || BLANK_RULE_CONDITION;
+    updateAbility(abilityIndex, "rule_to_add", {
+      ...rule,
+      conditions: [...normalizeAbilityConditions(rule.conditions), condition],
+      condition_to_add: { ...BLANK_RULE_CONDITION },
+    });
+  };
+
+  const removeAbilityRuleCondition = (abilityIndex, conditionIndex) => {
+    const ability = form.abilities[abilityIndex];
+    const rule = ability.rule_to_add || makeBlankRule();
+    updateAbility(abilityIndex, "rule_to_add", {
+      ...rule,
+      conditions: normalizeAbilityConditions(rule.conditions).filter((_, idx) => idx !== conditionIndex),
+    });
+  };
+
+  const updateAbilityRuleEffectDraft = (abilityIndex, field, value) => {
+    const ability = form.abilities[abilityIndex];
+    const rule = ability.rule_to_add || makeBlankRule();
+    updateAbility(abilityIndex, "rule_to_add", {
+      ...rule,
+      effect_to_add: {
+        ...(rule.effect_to_add || BLANK_EFFECT),
+        [field]: field === "amount" ? parseInt(value, 10) || 0 : value,
+      },
+    });
+  };
+
+  const addAbilityRuleEffect = abilityIndex => {
+    const ability = form.abilities[abilityIndex];
+    const rule = ability.rule_to_add || makeBlankRule();
+    updateAbility(abilityIndex, "rule_to_add", {
+      ...rule,
+      effects: [
+        ...normalizeEffects(rule.effects),
+        sanitizeEffectDraft(rule.effect_to_add || BLANK_EFFECT),
+      ],
+      effect_to_add: { ...BLANK_EFFECT },
+    });
+  };
+
+  const removeAbilityRuleEffect = (abilityIndex, effectIndex) => {
+    const ability = form.abilities[abilityIndex];
+    const rule = ability.rule_to_add || makeBlankRule();
+    updateAbility(abilityIndex, "rule_to_add", {
+      ...rule,
+      effects: normalizeEffects(rule.effects).filter((_, idx) => idx !== effectIndex),
+    });
+  };
+
+  const addAbilityRule = abilityIndex => {
+    const ability = form.abilities[abilityIndex];
+    const rule = ability.rule_to_add || makeBlankRule();
+    const effects = normalizeEffects(rule.effects);
+
+    if (effects.length === 0) {
+      toast.error("Adicione pelo menos um efeito na regra");
+      return;
+    }
+
+    const list = [...form.abilities];
+    list[abilityIndex] = {
+      ...ability,
+      rules: [
+        ...normalizeAbilityRules(ability.rules),
+        {
+          trigger: rule.trigger || ABILITY_TRIGGERS.ON_ATTACK,
+          conditions: normalizeAbilityConditions(rule.conditions),
+          effects,
+          duration: rule.duration || DURATIONS.INSTANT,
+        },
+      ],
+      rule_to_add: makeBlankRule(),
+    };
+    set("abilities", list);
+  };
+
+  const removeAbilityRule = (abilityIndex, ruleIndex) => {
+    const ability = form.abilities[abilityIndex];
+    updateAbility(
+      abilityIndex,
+      "rules",
+      normalizeAbilityRules(ability.rules).filter((_, idx) => idx !== ruleIndex)
+    );
+  };
+
   const updateEffectDraft = (draftField, field, value) => {
     setForm(f => ({
       ...f,
@@ -565,6 +707,7 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
           energy_type_to_add,
           energy_amount_to_add,
           effect_to_add,
+          rule_to_add,
           ...ability
         }) => ({
           ...ability,
@@ -900,6 +1043,84 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
                     onAdd={() => addAbilityEffect(i)}
                   />
                   <EffectsList effects={ab.effects} onRemove={effectIndex => removeAbilityEffect(i, effectIndex)} />
+                </div>
+                <div className="rounded-lg border border-cyan-500/20 bg-cyan-950/10 p-3 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <label className={labelCls + " mb-0"}>Regras avancadas</label>
+                    <span className="text-[10px] text-slate-500">{normalizeAbilityRules(ab.rules).length} adicionadas</span>
+                  </div>
+
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <label>
+                      <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Gatilho</span>
+                      <select value={ab.rule_to_add?.trigger || ABILITY_TRIGGERS.ON_ATTACK} onChange={e => updateAbilityRuleDraft(i, "trigger", e.target.value)} className={inputCls}>
+                        {Object.values(ABILITY_TRIGGERS).map(trigger => (
+                          <option key={trigger} value={trigger}>{ABILITY_TRIGGER_LABELS[trigger]}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Duracao da regra</span>
+                      <select value={ab.rule_to_add?.duration || DURATIONS.INSTANT} onChange={e => updateAbilityRuleDraft(i, "duration", e.target.value)} className={inputCls}>
+                        {Object.values(DURATIONS).map(duration => (
+                          <option key={duration} value={duration}>{DURATION_LABELS[duration]}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3 space-y-2">
+                    <div className="text-[10px] uppercase tracking-wider text-slate-500">Condicoes</div>
+                    <div className="flex flex-wrap items-end gap-2">
+                      <label className="min-w-[13rem] flex-[1_1_14rem]">
+                        <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Tipo</span>
+                        <select value={ab.rule_to_add?.condition_to_add?.type || ABILITY_CONDITION_TYPES.SOURCE_POSITION} onChange={e => updateAbilityRuleConditionDraft(i, "type", e.target.value)} className={inputCls}>
+                          {Object.values(ABILITY_CONDITION_TYPES).map(type => (
+                            <option key={type} value={type}>{ABILITY_CONDITION_LABELS[type]}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="min-w-[13rem] flex-[2_1_18rem]">
+                        <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Valor</span>
+                        <input value={ab.rule_to_add?.condition_to_add?.value || ""} onChange={e => updateAbilityRuleConditionDraft(i, "value", e.target.value)} placeholder="Ex: ACTIVE, BENCH ou Agente, Super" className={inputCls} />
+                      </label>
+                      <div className="flex basis-full justify-end">
+                        <button type="button" onClick={() => addAbilityRuleCondition(i)} className="inline-flex h-10 items-center justify-center rounded-lg border border-cyan-500/40 bg-cyan-500/20 px-4 text-xs text-cyan-100 hover:bg-cyan-500/30">
+                          <Plus size={13} />
+                        </button>
+                      </div>
+                    </div>
+                    {normalizeAbilityConditions(ab.rule_to_add?.conditions).length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {normalizeAbilityConditions(ab.rule_to_add.conditions).map((condition, conditionIndex) => (
+                          <button key={`${condition.type}-${conditionIndex}`} type="button" onClick={() => removeAbilityRuleCondition(i, conditionIndex)} className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-300 hover:border-rose-500/60 hover:text-rose-200">
+                            {ABILITY_CONDITION_LABELS[condition.type]}: {Array.isArray(condition.value) ? condition.value.join(", ") : condition.value}
+                            <X size={11} />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <DynamicEffectControls effect={ab.rule_to_add?.effect_to_add || BLANK_EFFECT} onChange={(field, value) => updateAbilityRuleEffectDraft(i, field, value)} onAdd={() => addAbilityRuleEffect(i)} />
+                  <EffectsList effects={ab.rule_to_add?.effects} onRemove={effectIndex => removeAbilityRuleEffect(i, effectIndex)} />
+
+                  <div className="flex justify-end">
+                    <button type="button" onClick={() => addAbilityRule(i)} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-4 py-2 text-xs text-cyan-100 hover:bg-cyan-500/25">
+                      <Plus size={13} /> Adicionar regra avancada
+                    </button>
+                  </div>
+
+                  {normalizeAbilityRules(ab.rules).length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {normalizeAbilityRules(ab.rules).map((rule, ruleIndex) => (
+                        <button key={`${rule.trigger}-${ruleIndex}`} type="button" onClick={() => removeAbilityRule(i, ruleIndex)} className="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-950/30 px-2 py-1 text-xs text-cyan-100 hover:border-rose-500/60 hover:text-rose-200">
+                          {ruleSummary(rule)}
+                          <X size={11} />
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <textarea value={ab.description} onChange={e => updateAbility(i, "description", e.target.value)}
                   placeholder="Descrição" rows={2}

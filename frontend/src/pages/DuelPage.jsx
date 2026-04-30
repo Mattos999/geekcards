@@ -452,11 +452,40 @@ export default function DuelPage() {
     (player.active.attached_energy || []).length >= activeRetreatCost
   );
 
+  const chooseDamageReaction = ({ side, options, damageAmount, targetCard }) => {
+    if (!options?.length) return null;
+
+    if (side === "opponent") return 0;
+
+    if (side !== "player") return null;
+
+    const labelFor = option => `${option.sourceCard?.name || "Carta"} - ${option.ability?.name || "Habilidade"}`;
+    if (options.length === 1) {
+      return window.confirm(
+        `Ativar ${labelFor(options[0])} antes de ${targetCard?.name || "a carta"} receber ${damageAmount} de dano?`
+      ) ? 0 : null;
+    }
+
+    const answer = window.prompt(
+      [
+        `${targetCard?.name || "Sua carta"} vai receber ${damageAmount} de dano.`,
+        "Escolha uma reacao ou deixe vazio para nao ativar:",
+        ...options.map((option, index) => `${index + 1}. ${labelFor(option)}`),
+      ].join("\n")
+    );
+    if (!answer) return null;
+    const index = parseInt(answer, 10) - 1;
+    return Number.isInteger(index) && index >= 0 && index < options.length ? index : null;
+  };
+
+  const reactionContext = () => ({ chooseDamageReaction });
+
   const applyAndBot = action => {
     setDuel(current => {
       if (!current) return current;
-      const next = action(current);
-      return next.turn === "opponent" && !next.winner ? runBotTurn(next) : next;
+      const context = reactionContext();
+      const next = action(current, context);
+      return next.turn === "opponent" && !next.winner ? runBotTurn(next, context) : next;
     });
   };
 
@@ -467,9 +496,9 @@ export default function DuelPage() {
   const runCardAction = (action, context = {}) => {
     if (!action) return;
     if (action.kind === "ability") {
-      applyAndBot(state => activateAbility(state, "player", action.abilityIndex, context));
+      applyAndBot((state, reaction) => activateAbility(state, "player", action.abilityIndex, { ...context, ...reaction }));
     } else if (action.kind === "hand") {
-      applyAndBot(state => playActionCard(state, "player", action.handIndex, context));
+      applyAndBot((state, reaction) => playActionCard(state, "player", action.handIndex, { ...context, ...reaction }));
     }
     setPendingTargetAction(null);
     setPendingEnergyMoveAction(null);
@@ -494,7 +523,7 @@ export default function DuelPage() {
       setPendingEnergyMoveAction(null);
       return;
     }
-    applyAndBot(state => activateAbility(state, "player", index));
+    applyAndBot((state, reaction) => activateAbility(state, "player", index, reaction));
   };
 
   const handleHandActionClick = (card, index) => {
@@ -511,7 +540,7 @@ export default function DuelPage() {
       setPendingEnergyMoveAction(null);
       return;
     }
-    applyAndBot(state => playActionCard(state, "player", index));
+    applyAndBot((state, reaction) => playActionCard(state, "player", index, reaction));
   };
 
   const getEvolutionTargets = handIndex => duel ? findEvolutionTargets(duel, "player", handIndex) : [];

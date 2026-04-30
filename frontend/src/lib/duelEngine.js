@@ -658,6 +658,8 @@ const checkAbilityCondition = (state, condition, context) => {
   switch (condition.type) {
     case "SOURCE_POSITION":
       return String(condition.value || "ACTIVE").toUpperCase() === sourcePosition(sourceRef);
+    case "TARGET_POSITION":
+      return String(condition.value || "ACTIVE").toUpperCase() === sourcePosition(targetRef);
     case "TARGET_NATURE_IN":
       return (target?.natures || []).some(nature => valuesInclude(condition.value, nature));
     case "TARGET_IS_DAMAGED":
@@ -717,6 +719,77 @@ function resolveAbilityRulesForSide(state, side, trigger, context = {}) {
     resolveAbilityRules(next, side, ref, trigger, context)
   ), state);
 }
+
+const damageReactionOptions = (state, defendingSide, damageTargetRef, damageSourceRef, damageAmount, context = {}) => (
+  ruleCardRefsForSide(state, defendingSide).flatMap(sourceRef => {
+    const source = targetCard(state.players[sourceRef.side], sourceRef.zone, sourceRef.index);
+    if (!source) return [];
+
+    return (source.abilities || []).flatMap((ability, abilityIndex) => {
+      if (!canPayAbility(source, ability)) return [];
+
+      return normalizeAbilityRules(ability.rules)
+        .map((rule, ruleIndex) => ({ rule, ruleIndex }))
+        .filter(({ rule }) => rule.trigger === ABILITY_TRIGGERS.BEFORE_DAMAGE_TAKEN)
+        .filter(({ rule }) => rule.conditions.every(condition => checkAbilityCondition(state, condition, {
+          ...context,
+          trigger: ABILITY_TRIGGERS.BEFORE_DAMAGE_TAKEN,
+          sourceRef,
+          sourceCard: source,
+          damageSourceRef,
+          damageTargetRef,
+          targetRef: damageTargetRef,
+          damageAmount,
+        })))
+        .map(({ rule, ruleIndex }) => ({
+          side: defendingSide,
+          sourceRef,
+          sourceCard: source,
+          ability,
+          abilityIndex,
+          rule,
+          ruleIndex,
+        }));
+    });
+  })
+);
+
+const applyDamageReaction = (state, options, details, chooseDamageReaction) => {
+  if (!options.length || typeof chooseDamageReaction !== "function") {
+    return { state, damageTargetRef: details.damageTargetRef };
+  }
+
+  const choice = chooseDamageReaction({
+    ...details,
+    options,
+  });
+  const choiceIndex = Number.isInteger(choice) ? choice : parseInt(choice, 10);
+  if (!Number.isInteger(choiceIndex) || choiceIndex < 0 || choiceIndex >= options.length) {
+    return { state, damageTargetRef: details.damageTargetRef };
+  }
+
+  const selected = options[choiceIndex];
+  const interceptsDamage = normalizeEffects(selected.rule.effects)
+    .some(effect => effect.type === EFFECT_TYPES.TAKE_DAMAGE_INSTEAD);
+  const resolved = resolveEffects(state, selected.sourceRef.side, selected.sourceCard, selected.rule.effects, {
+    ...details.context,
+    trigger: selected.rule.trigger,
+    sourceRef: selected.sourceRef,
+    sourceCard: selected.sourceCard,
+    damageSourceRef: details.damageSourceRef,
+    damageTargetRef: details.damageTargetRef,
+    targetRef: details.damageTargetRef,
+    damageAmount: details.damageAmount,
+    suppressDamageReactions: true,
+    suppressRuleTriggers: true,
+    skipKnockoutCheck: true,
+  });
+
+  return {
+    state: withLog(resolved, `${selected.sourceCard.name} ativou ${selected.ability.name}.`),
+    damageTargetRef: interceptsDamage ? selected.sourceRef : details.damageTargetRef,
+  };
+};
 
 function resolveEquipmentTrigger(state, side, equippedCardRef, trigger, context = {}) {
   const equipped = targetCard(state.players[equippedCardRef.side], equippedCardRef.zone, equippedCardRef.index);
@@ -968,6 +1041,9 @@ function resolveConditionEffect(state, side, effect, amount, sourceCard) {
   if (effect.type === EFFECT_TYPES.IF_HAS_TOOL_ATTACHED) {
     return withLog(state, `${sourceCard?.name || "Carta"} ${(sourceCard?.equipments || []).length ? "tem" : "nao tem"} equipamento.`);
   }
+  if (effect.type === EFFECT_TYPES.TAKE_DAMAGE_INSTEAD) {
+    return withLog(state, `${sourceCard?.name || "Carta"} entrou na frente do dano.`);
+  }
   if ([
     EFFECT_TYPES.IF_TARGET_NATURE,
     EFFECT_TYPES.IF_TARGET_TAG,
@@ -975,6 +1051,7 @@ function resolveConditionEffect(state, side, effect, amount, sourceCard) {
     EFFECT_TYPES.IF_CARD_KNOCKED_OUT,
     EFFECT_TYPES.ON_ATTACK,
     EFFECT_TYPES.ON_DAMAGE_TAKEN,
+    EFFECT_TYPES.TAKE_DAMAGE_INSTEAD,
     EFFECT_TYPES.ON_ENERGY_ATTACHED,
     EFFECT_TYPES.ON_KNOCKOUT,
     EFFECT_TYPES.ON_TURN_START,
@@ -1209,10 +1286,10 @@ export function resolveEffects(state, side, sourceCard, effects, context = {}) {
       if (!target) return;
 
       if (DAMAGE_EFFECTS.has(effect.type)) {
-        const redirectedRef = target.redirect_damage && ref.zone === "active" && next.players[ref.side].bench.length > 0
+        let redirectedRef = target.redirect_damage && ref.zone === "active" && next.players[ref.side].bench.length > 0
           ? { side: ref.side, zone: "bench", index: 0 }
           : ref;
-        const redirectedTarget = targetCard(next.players[redirectedRef.side], redirectedRef.zone, redirectedRef.index) || target;
+        let redirectedTarget = targetCard(next.players[redirectedRef.side], redirectedRef.zone, redirectedRef.index) || target;
         if (
           redirectedTarget.immune_to_damage_type === "ANY" ||
           (redirectedTarget.immune_to_damage_type && (sourceCard?.natures || []).includes(redirectedTarget.immune_to_damage_type))
@@ -1248,6 +1325,24 @@ export function resolveEffects(state, side, sourceCard, effects, context = {}) {
         const splitAmount = effect.type === EFFECT_TYPES.DAMAGE_SPLIT && refs.length > 0
           ? Math.ceil(amount / refs.length)
           : amount;
+        const reactionBaseDamage = Math.max(0, splitAmount + passiveBonus + staticBonus + energyBonus + benchBonus + diceBonus + coinBonus + consecutiveBonus);
+        if (reactionBaseDamage > 0 && !context.suppressDamageReactions) {
+          const damageSourceRef = effect.damage_source_ref || sourceRef;
+          const options = damageReactionOptions(next, redirectedRef.side, redirectedRef, damageSourceRef, reactionBaseDamage, context);
+          const reaction = applyDamageReaction(next, options, {
+            side: redirectedRef.side,
+            damageSourceRef,
+            damageTargetRef: redirectedRef,
+            damageAmount: reactionBaseDamage,
+            sourceCard,
+            targetCard: redirectedTarget,
+            context,
+          }, context.chooseDamageReaction);
+          next = reaction.state;
+          redirectedRef = reaction.damageTargetRef;
+          redirectedTarget = targetCard(next.players[redirectedRef.side], redirectedRef.zone, redirectedRef.index);
+          if (!redirectedTarget) return;
+        }
         const doubleMultiplier = sourceCard?.double_damage_against === "ANY" ||
           (sourceCard?.double_damage_against && (redirectedTarget.natures || []).includes(sourceCard.double_damage_against))
           ? 2
@@ -1686,7 +1781,7 @@ export function endTurn(state) {
   return resolveKnockouts(next, nextSide);
 }
 
-export function runBotTurn(state) {
+export function runBotTurn(state, context = {}) {
   if (state.phase !== "battle" || state.winner || state.turn !== "opponent") return state;
   let next = state;
   const bot = next.players.opponent;
@@ -1707,7 +1802,7 @@ export function runBotTurn(state) {
 
   let attacked = false;
   if (abilityIndex >= 0) {
-    next = activateAbility(next, "opponent", abilityIndex);
+    next = activateAbility(next, "opponent", abilityIndex, context);
     attacked = true;
   }
 
