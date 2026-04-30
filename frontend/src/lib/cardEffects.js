@@ -423,12 +423,45 @@ export const ABILITY_CONDITION_LABELS = {
   [ABILITY_CONDITION_TYPES.SELF_ENERGY_COUNT_GTE]: "Fonte tem energia minima",
 };
 
+export const ABILITY_POSITION_VALUES = {
+  ACTIVE: "ACTIVE",
+  BENCH: "BENCH",
+  DISCARD: "DISCARD",
+  HAND: "HAND",
+};
+
+export const ABILITY_POSITION_LABELS = {
+  [ABILITY_POSITION_VALUES.ACTIVE]: "Ativa",
+  [ABILITY_POSITION_VALUES.BENCH]: "Banco",
+  [ABILITY_POSITION_VALUES.DISCARD]: "Cemitério",
+  [ABILITY_POSITION_VALUES.HAND]: "Mão",
+};
+
+export const ABILITY_POSITION_OPTIONS = Object.values(ABILITY_POSITION_VALUES)
+  .map(value => ({ value, label: ABILITY_POSITION_LABELS[value] }))
+  .sort((a, b) => a.label.localeCompare(b.label, "pt-BR", { sensitivity: "base" }));
+
 export const effectTypeLabel = type => EFFECT_TYPE_LABELS[type] || labelFromValue(type);
 export const targetLabel = target => TARGET_LABELS[target] || labelFromValue(target);
 export const durationLabel = duration => DURATION_LABELS[duration] || labelFromValue(duration);
 export const conditionLabel = condition => EFFECT_CONDITION_LABELS[condition || ""] || labelFromValue(condition);
 export const abilityTriggerLabel = trigger => ABILITY_TRIGGER_LABELS[trigger] || labelFromValue(trigger);
 export const abilityConditionLabel = type => ABILITY_CONDITION_LABELS[type] || labelFromValue(type);
+export const abilityPositionLabel = value => ABILITY_POSITION_LABELS[value] || labelFromValue(value);
+
+export const abilityConditionValueLabel = condition => {
+  if (!condition) return "";
+  const value = condition.value;
+  if (condition.type === ABILITY_CONDITION_TYPES.SOURCE_POSITION || condition.type === ABILITY_CONDITION_TYPES.TARGET_POSITION) {
+    const values = Array.isArray(value) ? value : [value];
+    return values.filter(Boolean).map(abilityPositionLabel).join(", ");
+  }
+  return Array.isArray(value) ? value.join(", ") : value;
+};
+
+export const EFFECT_TYPE_OPTIONS = Object.values(EFFECT_TYPES)
+  .map(value => ({ value, label: effectTypeLabel(value) }))
+  .sort((a, b) => a.label.localeCompare(b.label, "pt-BR", { sensitivity: "base" }));
 
 export const normalizeEffects = effects => (
   Array.isArray(effects)
@@ -525,7 +558,10 @@ export const normalizeAbilityRules = rules => (
 export const ruleSummary = rule => {
   const effects = normalizeEffects(rule.effects).map(effectSummary).join(" + ");
   const conditions = normalizeAbilityConditions(rule.conditions)
-    .map(condition => `${abilityConditionLabel(condition.type)}: ${Array.isArray(condition.value) ? condition.value.join(", ") : condition.value}`)
+    .map(condition => {
+      const valueLabel = abilityConditionValueLabel(condition);
+      return `${abilityConditionLabel(condition.type)}${valueLabel ? `: ${valueLabel}` : ""}`;
+    })
     .join(" | ");
   return `${abilityTriggerLabel(rule.trigger)}${conditions ? ` (${conditions})` : ""}: ${effects}`;
 };

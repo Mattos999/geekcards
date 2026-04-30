@@ -6,17 +6,19 @@ import { normalizeAbilityEnergyCosts, sanitizeEnergyCosts, totalEnergyCost } fro
 import {
   ABILITY_CONDITION_LABELS,
   ABILITY_CONDITION_TYPES,
+  ABILITY_POSITION_OPTIONS,
   ABILITY_TRIGGER_LABELS,
   ABILITY_TRIGGERS,
   DURATIONS,
   DURATION_LABELS,
   EFFECT_CONDITIONS,
   EFFECT_CONDITION_LABELS,
+  EFFECT_TYPE_OPTIONS,
   EFFECT_TYPES,
   TARGETS,
   TARGET_LABELS,
+  abilityConditionValueLabel,
   effectSummary,
-  effectTypeLabel,
   normalizeAbilityConditions,
   normalizeAbilityRules,
   normalizeEquipmentPassiveEffects,
@@ -74,6 +76,79 @@ const makeBlankRule = () => ({
   condition_to_add: { ...BLANK_RULE_CONDITION },
   effect_to_add: { ...BLANK_EFFECT },
 });
+
+const POSITION_CONDITION_TYPES = new Set([
+  ABILITY_CONDITION_TYPES.SOURCE_POSITION,
+  ABILITY_CONDITION_TYPES.TARGET_POSITION,
+]);
+
+const defaultRuleConditionValue = type => {
+  if (POSITION_CONDITION_TYPES.has(type)) return ABILITY_POSITION_OPTIONS[0]?.value || "ACTIVE";
+  if (type === ABILITY_CONDITION_TYPES.TARGET_NATURE_IN) return [];
+  if (type === ABILITY_CONDITION_TYPES.SELF_HAS_ENERGY_TYPE) return ENERGY_TYPES[0] || "";
+  if (type === ABILITY_CONDITION_TYPES.SELF_ENERGY_COUNT_GTE) return 1;
+  return "";
+};
+
+const normalizeRuleConditionDraft = condition => {
+  const type = condition?.type || ABILITY_CONDITION_TYPES.SOURCE_POSITION;
+  const fallback = defaultRuleConditionValue(type);
+  const value = condition?.value;
+  return {
+    type,
+    value: value === undefined || value === null || (value === "" && fallback !== "") ? fallback : value,
+  };
+};
+
+const RuleConditionValueControl = ({ condition, onChange, className }) => {
+  const draft = normalizeRuleConditionDraft(condition);
+
+  if (POSITION_CONDITION_TYPES.has(draft.type)) {
+    return (
+      <select value={draft.value || ABILITY_POSITION_OPTIONS[0]?.value || "ACTIVE"} onChange={e => onChange(e.target.value)} className={className}>
+        {ABILITY_POSITION_OPTIONS.map(option => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
+    );
+  }
+
+  if (draft.type === ABILITY_CONDITION_TYPES.TARGET_NATURE_IN) {
+    const selected = Array.isArray(draft.value)
+      ? draft.value
+      : String(draft.value || "").split(",").map(item => item.trim()).filter(Boolean);
+    return (
+      <select
+        multiple
+        value={selected}
+        onChange={e => onChange(Array.from(e.target.selectedOptions).map(option => option.value))}
+        className={`${className} min-h-[7rem]`}
+      >
+        {NATURES.map(nature => <option key={nature} value={nature}>{nature}</option>)}
+      </select>
+    );
+  }
+
+  if (draft.type === ABILITY_CONDITION_TYPES.SELF_HAS_ENERGY_TYPE) {
+    return (
+      <select value={draft.value || ENERGY_TYPES[0] || ""} onChange={e => onChange(e.target.value)} className={className}>
+        {ENERGY_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
+      </select>
+    );
+  }
+
+  if (draft.type === ABILITY_CONDITION_TYPES.SELF_ENERGY_COUNT_GTE) {
+    return (
+      <input type="number" min={0} value={draft.value ?? 1} onChange={e => onChange(parseInt(e.target.value, 10) || 0)} className={`${className} font-mono`} />
+    );
+  }
+
+  return (
+    <div className="flex h-10 items-center rounded-lg border border-slate-800 bg-slate-950 px-3 text-sm text-slate-500">
+      Sem valor
+    </div>
+  );
+};
 const EFFECT_ATTRIBUTES = [
   { value: "hp", label: "HP" },
   { value: "damage", label: "Dano" },
@@ -142,7 +217,7 @@ const EffectControls = ({ effect, onChange, onAdd }) => {
         <label className="min-w-0 sm:col-span-2">
           <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Efeito</span>
           <select value={effect.type} onChange={e => onChange("type", e.target.value)} className={inputCls}>
-            {Object.values(EFFECT_TYPES).map(type => <option key={type} value={type}>{effectTypeLabel(type)}</option>)}
+            {EFFECT_TYPE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </label>
         <label className="min-w-0">
@@ -220,7 +295,7 @@ const DynamicEffectControls = ({ effect, onChange, onAdd }) => {
         <label className="min-w-[18rem] flex-[2_1_24rem]">
           <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Efeito</span>
           <select value={effect.type} onChange={e => onChange("type", e.target.value)} className={inputCls}>
-            {Object.values(EFFECT_TYPES).map(type => <option key={type} value={type}>{effectTypeLabel(type)}</option>)}
+            {EFFECT_TYPE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </label>
         {show("target") && (
@@ -560,19 +635,24 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
   const updateAbilityRuleConditionDraft = (abilityIndex, field, value) => {
     const ability = form.abilities[abilityIndex];
     const rule = ability.rule_to_add || makeBlankRule();
+    const currentCondition = rule.condition_to_add || BLANK_RULE_CONDITION;
+    const nextCondition = {
+      ...currentCondition,
+      [field]: value,
+    };
+    if (field === "type") {
+      nextCondition.value = defaultRuleConditionValue(value);
+    }
     updateAbility(abilityIndex, "rule_to_add", {
       ...rule,
-      condition_to_add: {
-        ...(rule.condition_to_add || BLANK_RULE_CONDITION),
-        [field]: value,
-      },
+      condition_to_add: nextCondition,
     });
   };
 
   const addAbilityRuleCondition = abilityIndex => {
     const ability = form.abilities[abilityIndex];
     const rule = ability.rule_to_add || makeBlankRule();
-    const condition = rule.condition_to_add || BLANK_RULE_CONDITION;
+    const condition = normalizeRuleConditionDraft(rule.condition_to_add || BLANK_RULE_CONDITION);
     updateAbility(abilityIndex, "rule_to_add", {
       ...rule,
       conditions: [...normalizeAbilityConditions(rule.conditions), condition],
@@ -1082,7 +1162,11 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
                       </label>
                       <label className="min-w-[13rem] flex-[2_1_18rem]">
                         <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Valor</span>
-                        <input value={ab.rule_to_add?.condition_to_add?.value || ""} onChange={e => updateAbilityRuleConditionDraft(i, "value", e.target.value)} placeholder="Ex: ACTIVE, BENCH ou Agente, Super" className={inputCls} />
+                        <RuleConditionValueControl
+                          condition={ab.rule_to_add?.condition_to_add}
+                          onChange={value => updateAbilityRuleConditionDraft(i, "value", value)}
+                          className={inputCls}
+                        />
                       </label>
                       <div className="flex basis-full justify-end">
                         <button type="button" onClick={() => addAbilityRuleCondition(i)} className="inline-flex h-10 items-center justify-center rounded-lg border border-cyan-500/40 bg-cyan-500/20 px-4 text-xs text-cyan-100 hover:bg-cyan-500/30">
@@ -1094,7 +1178,7 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
                       <div className="flex flex-wrap gap-2">
                         {normalizeAbilityConditions(ab.rule_to_add.conditions).map((condition, conditionIndex) => (
                           <button key={`${condition.type}-${conditionIndex}`} type="button" onClick={() => removeAbilityRuleCondition(i, conditionIndex)} className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-300 hover:border-rose-500/60 hover:text-rose-200">
-                            {ABILITY_CONDITION_LABELS[condition.type]}: {Array.isArray(condition.value) ? condition.value.join(", ") : condition.value}
+                            {ABILITY_CONDITION_LABELS[condition.type]}{abilityConditionValueLabel(condition) ? `: ${abilityConditionValueLabel(condition)}` : ""}
                             <X size={11} />
                           </button>
                         ))}

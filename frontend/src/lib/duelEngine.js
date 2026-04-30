@@ -389,7 +389,9 @@ const updateSide = (state, side, updater) => ({
 
 const targetCard = (player, zone, index = 0) => {
   if (zone === "active") return player.active;
-  return player.bench[index] || null;
+  if (zone === "hand") return (player.hand || [])[index] || null;
+  if (zone === "discard" || zone === "cemetery") return (player.discard || [])[index] || null;
+  return (player.bench || [])[index] || null;
 };
 
 const cardWithoutEquipments = card => card ? { ...card, equipments: [] } : card;
@@ -407,7 +409,9 @@ const discardEquipments = (player, card) => {
 const setTargetCard = (player, zone, index, card) => {
   const next = clone(player);
   if (zone === "active") next.active = card;
-  else next.bench[index] = card;
+  else if (zone === "hand" && Array.isArray(next.hand)) next.hand[index] = card;
+  else if ((zone === "discard" || zone === "cemetery") && Array.isArray(next.discard)) next.discard[index] = card;
+  else if (Array.isArray(next.bench)) next.bench[index] = card;
   return next;
 };
 
@@ -635,7 +639,12 @@ const effectConditionMatches = (state, effect, context) => {
   return false;
 };
 
-const sourcePosition = ref => ref?.zone === "bench" ? "BENCH" : "ACTIVE";
+const sourcePosition = ref => {
+  if (ref?.zone === "bench") return "BENCH";
+  if (ref?.zone === "hand") return "HAND";
+  if (ref?.zone === "discard" || ref?.zone === "cemetery") return "DISCARD";
+  return "ACTIVE";
+};
 
 const valuesInclude = (value, item) => {
   const list = Array.isArray(value)

@@ -8,8 +8,10 @@ import { normalizeAbilityEnergyCosts, sanitizeEnergyCosts, totalEnergyCost } fro
 import {
   ABILITY_CONDITION_LABELS,
   ABILITY_CONDITION_TYPES,
+  ABILITY_POSITION_OPTIONS,
   ABILITY_TRIGGER_LABELS,
   ABILITY_TRIGGERS,
+  EFFECT_TYPE_OPTIONS,
   EFFECT_TYPES,
   EFFECT_CONDITION_LABELS,
   EFFECT_CONDITIONS,
@@ -17,8 +19,8 @@ import {
   DURATIONS,
   TARGET_LABELS,
   TARGETS,
+  abilityConditionValueLabel,
   effectSummary,
-  effectTypeLabel,
   normalizeAbilityConditions,
   normalizeAbilityRules,
   normalizeEquipmentPassiveEffects,
@@ -229,6 +231,79 @@ const makeBlankRule = () => ({
   effect_to_add: { ...BLANK_EFFECT },
 });
 
+const POSITION_CONDITION_TYPES = new Set([
+  ABILITY_CONDITION_TYPES.SOURCE_POSITION,
+  ABILITY_CONDITION_TYPES.TARGET_POSITION,
+]);
+
+const defaultRuleConditionValue = type => {
+  if (POSITION_CONDITION_TYPES.has(type)) return ABILITY_POSITION_OPTIONS[0]?.value || "ACTIVE";
+  if (type === ABILITY_CONDITION_TYPES.TARGET_NATURE_IN) return [];
+  if (type === ABILITY_CONDITION_TYPES.SELF_HAS_ENERGY_TYPE) return ENERGY_TYPES[0] || "";
+  if (type === ABILITY_CONDITION_TYPES.SELF_ENERGY_COUNT_GTE) return 1;
+  return "";
+};
+
+const normalizeRuleConditionDraft = condition => {
+  const type = condition?.type || ABILITY_CONDITION_TYPES.SOURCE_POSITION;
+  const fallback = defaultRuleConditionValue(type);
+  const value = condition?.value;
+  return {
+    type,
+    value: value === undefined || value === null || (value === "" && fallback !== "") ? fallback : value,
+  };
+};
+
+const RuleConditionValueControl = ({ condition, onChange, className }) => {
+  const draft = normalizeRuleConditionDraft(condition);
+
+  if (POSITION_CONDITION_TYPES.has(draft.type)) {
+    return (
+      <select value={draft.value || ABILITY_POSITION_OPTIONS[0]?.value || "ACTIVE"} onChange={e => onChange(e.target.value)} className={className}>
+        {ABILITY_POSITION_OPTIONS.map(option => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
+    );
+  }
+
+  if (draft.type === ABILITY_CONDITION_TYPES.TARGET_NATURE_IN) {
+    const selected = Array.isArray(draft.value)
+      ? draft.value
+      : String(draft.value || "").split(",").map(item => item.trim()).filter(Boolean);
+    return (
+      <select
+        multiple
+        value={selected}
+        onChange={e => onChange(Array.from(e.target.selectedOptions).map(option => option.value))}
+        className={`${className} min-h-[7rem]`}
+      >
+        {NATURES.map(nature => <option key={nature} value={nature}>{nature}</option>)}
+      </select>
+    );
+  }
+
+  if (draft.type === ABILITY_CONDITION_TYPES.SELF_HAS_ENERGY_TYPE) {
+    return (
+      <select value={draft.value || ENERGY_TYPES[0] || ""} onChange={e => onChange(e.target.value)} className={className}>
+        {ENERGY_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
+      </select>
+    );
+  }
+
+  if (draft.type === ABILITY_CONDITION_TYPES.SELF_ENERGY_COUNT_GTE) {
+    return (
+      <input type="number" min={0} value={draft.value ?? 1} onChange={e => onChange(parseInt(e.target.value, 10) || 0)} className={`${className} font-mono`} />
+    );
+  }
+
+  return (
+    <div className="flex h-10 items-center rounded-lg border border-slate-800 bg-slate-950 px-3 text-sm text-slate-500">
+      Sem valor
+    </div>
+  );
+};
+
 const getEvolutionStage = card => {
   if (!card?.is_evolution) return 1;
   const stages = { I: 2, II: 2, III: 3, IV: 4 };
@@ -262,8 +337,8 @@ const EffectControls = ({ effect, onChange, onAdd }) => {
             onChange={e => onChange("type", e.target.value)}
             className={inputCls}
           >
-            {Object.values(EFFECT_TYPES).map(type => (
-              <option key={type} value={type}>{effectTypeLabel(type)}</option>
+            {EFFECT_TYPE_OPTIONS.map(option => (
+              <option key={option.value} value={option.value}>{option.label}</option>
             ))}
           </select>
         </label>
@@ -576,20 +651,28 @@ export default function CardBuilderPage() {
   const updateRuleConditionDraft = (field, value) => {
     setAbilityDraft(d => ({
       ...d,
-      rule_to_add: {
-        ...(d.rule_to_add || makeBlankRule()),
-        condition_to_add: {
-          ...((d.rule_to_add || makeBlankRule()).condition_to_add || BLANK_RULE_CONDITION),
+      rule_to_add: (() => {
+        const rule = d.rule_to_add || makeBlankRule();
+        const currentCondition = rule.condition_to_add || BLANK_RULE_CONDITION;
+        const nextCondition = {
+          ...currentCondition,
           [field]: value,
-        },
-      },
+        };
+        if (field === "type") {
+          nextCondition.value = defaultRuleConditionValue(value);
+        }
+        return {
+          ...rule,
+          condition_to_add: nextCondition,
+        };
+      })(),
     }));
   };
 
   const addRuleCondition = () => {
     setAbilityDraft(d => {
       const rule = d.rule_to_add || makeBlankRule();
-      const condition = rule.condition_to_add || BLANK_RULE_CONDITION;
+      const condition = normalizeRuleConditionDraft(rule.condition_to_add || BLANK_RULE_CONDITION);
       return {
         ...d,
         rule_to_add: {
@@ -1315,10 +1398,9 @@ export default function CardBuilderPage() {
                         </label>
                         <label className="min-w-[13rem] flex-[2_1_18rem]">
                           <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Valor</span>
-                          <input
-                            value={abilityDraft.rule_to_add?.condition_to_add?.value || ""}
-                            onChange={e => updateRuleConditionDraft("value", e.target.value)}
-                            placeholder="Ex: ACTIVE, BENCH ou Agente, Super"
+                          <RuleConditionValueControl
+                            condition={abilityDraft.rule_to_add?.condition_to_add}
+                            onChange={value => updateRuleConditionDraft("value", value)}
                             className="w-full min-w-0 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
                           />
                         </label>
@@ -1341,7 +1423,7 @@ export default function CardBuilderPage() {
                               onClick={() => removeRuleCondition(idx)}
                               className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-300 hover:border-rose-500/60 hover:text-rose-200"
                             >
-                              {ABILITY_CONDITION_LABELS[condition.type]}: {Array.isArray(condition.value) ? condition.value.join(", ") : condition.value}
+                              {ABILITY_CONDITION_LABELS[condition.type]}{abilityConditionValueLabel(condition) ? `: ${abilityConditionValueLabel(condition)}` : ""}
                               <X size={11} />
                             </button>
                           ))}

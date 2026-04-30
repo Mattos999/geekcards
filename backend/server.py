@@ -1187,6 +1187,10 @@ def _with_duel_log(state: dict, message: str) -> dict:
 def _target_card(player: dict, zone: str, index: int = 0) -> Optional[dict]:
     if zone == "active":
         return player.get("active")
+    if zone == "hand":
+        return (player.get("hand") or [None])[index] if index < len(player.get("hand") or []) else None
+    if zone in ("discard", "cemetery"):
+        return (player.get("discard") or [None])[index] if index < len(player.get("discard") or []) else None
     return (player.get("bench") or [None])[index] if index < len(player.get("bench") or []) else None
 
 
@@ -1194,6 +1198,10 @@ def _set_target_card(player: dict, zone: str, index: int, card: dict) -> dict:
     next_player = copy.deepcopy(player)
     if zone == "active":
         next_player["active"] = card
+    elif zone == "hand" and index < len(next_player.get("hand", [])):
+        next_player["hand"][index] = card
+    elif zone in ("discard", "cemetery") and index < len(next_player.get("discard", [])):
+        next_player["discard"][index] = card
     elif index < len(next_player.get("bench", [])):
         next_player["bench"][index] = card
     return next_player
@@ -1731,6 +1739,17 @@ def _online_condition_values(value: Any) -> list[str]:
     return [part.strip() for part in str(value or "").split(",") if part.strip()]
 
 
+def _online_ref_position(ref: Optional[dict]) -> str:
+    zone = (ref or {}).get("zone")
+    if zone == "bench":
+        return "BENCH"
+    if zone == "hand":
+        return "HAND"
+    if zone in ("discard", "cemetery"):
+        return "DISCARD"
+    return "ACTIVE"
+
+
 def _online_rule_condition_matches(state: dict, condition: dict, context: dict) -> bool:
     condition_type = condition.get("type")
     value = condition.get("value")
@@ -1741,12 +1760,10 @@ def _online_rule_condition_matches(state: dict, condition: dict, context: dict) 
 
     if condition_type == "SOURCE_POSITION":
         expected = str(value or "ACTIVE").upper()
-        actual = "BENCH" if source_ref and source_ref.get("zone") == "bench" else "ACTIVE"
-        return actual == expected
+        return _online_ref_position(source_ref) == expected
     if condition_type == "TARGET_POSITION":
         expected = str(value or "ACTIVE").upper()
-        actual = "BENCH" if target_ref and target_ref.get("zone") == "bench" else "ACTIVE"
-        return actual == expected
+        return _online_ref_position(target_ref) == expected
     if condition_type == "TARGET_NATURE_IN":
         values = _online_condition_values(value)
         return bool(target_card and any(nature in values for nature in target_card.get("natures") or []))
