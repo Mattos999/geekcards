@@ -164,21 +164,26 @@ export default function CommunityPage() {
 
     try {
 
-      await api.post(
+      const { data } = await api.post(
         `/cards/${card.id}/add-to-library`
       );
 
       toast.success(
-        `"${card.name}" adicionada à sua biblioteca`
+        data?.message || `"${card.name}" adicionada a sua biblioteca`
       );
 
+      setCards(current => current.map(item => (
+        item.id === card.id
+          ? { ...item, is_in_my_library: true, can_add_to_library: false }
+          : item
+      )));
     }
 
     catch (e) {
 
-      toast.error(
-        formatApiError(e)
-      );
+      const message = formatApiError(e);
+      if (e?.response?.status === 409) toast.warning(message);
+      else toast.error(message);
 
     }
 
@@ -439,7 +444,7 @@ export default function CommunityPage() {
 
                   <button
                     onClick={() => clone(c)}
-                    disabled={cloning === c.id}
+                    disabled={cloning === c.id || c.can_add_to_library === false || c.is_in_my_library}
                     className="w-48 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-indigo-200 text-xs transition-colors disabled:opacity-50"
                   >
 
@@ -451,7 +456,7 @@ export default function CommunityPage() {
 
                     }
 
-                    Adicionar
+                    {c.is_in_my_library || c.can_add_to_library === false ? "Ja possui" : "Adicionar"}
 
                   </button>
 

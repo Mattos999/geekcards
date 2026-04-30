@@ -1,6 +1,15 @@
 import { ENERGY_TYPES } from "./natures";
 import { normalizeAbilityEnergyCosts, sanitizeEnergyCosts } from "./energyCosts";
-import { EFFECT_CONDITIONS, EFFECT_TYPES, TARGETS, normalizeEffects } from "./cardEffects";
+import {
+  ABILITY_TRIGGERS,
+  EFFECT_CONDITIONS,
+  EFFECT_TYPES,
+  EQUIPMENT_DAMAGE_BONUS_EFFECT_TYPES,
+  TARGETS,
+  normalizeAbilityRules,
+  normalizeEffects,
+  shouldApplyEquipmentPassiveEffect,
+} from "./cardEffects";
 
 const INITIAL_HAND_SIZE = 5;
 const BENCH_LIMIT = 3;
@@ -117,6 +126,7 @@ const canPayAbility = (card, ability) => {
 };
 
 const abilityEffects = ability => {
+  if (normalizeAbilityRules(ability?.rules).length > 0) return [];
   const effects = normalizeEffects(ability?.effects);
   if (effects.length > 0) return effects;
   const damage = Math.max(0, parseInt(ability?.damage, 10) || 0);
@@ -125,14 +135,7 @@ const abilityEffects = ability => {
 
 const passiveDamageBonus = card => (card?.equipments || []).reduce((total, equipment) => (
   total + normalizeEffects(equipment.passive_effects)
-    .filter(effect => [
-      EFFECT_TYPES.BUFF_DAMAGE,
-      EFFECT_TYPES.BUFF_DAMAGE_THIS_TURN,
-      EFFECT_TYPES.BUFF_DAMAGE_NEXT_TURN,
-      EFFECT_TYPES.BUFF_EQUIPPED_CARD_DAMAGE,
-      EFFECT_TYPES.BUFF_DAMAGE_BY_TAG,
-      EFFECT_TYPES.BUFF_DAMAGE_BY_ATTACHED_ENERGY,
-    ].includes(effect.type))
+    .filter(effect => EQUIPMENT_DAMAGE_BONUS_EFFECT_TYPES.has(effect.type))
     .filter(effect => !effect.condition || [
       EFFECT_CONDITIONS.ALWAYS,
       EFFECT_CONDITIONS.EQUIPPED_CARD_DEALS_DAMAGE,
@@ -632,13 +635,96 @@ const effectConditionMatches = (state, effect, context) => {
   return false;
 };
 
+const sourcePosition = ref => ref?.zone === "bench" ? "BENCH" : "ACTIVE";
+
+const valuesInclude = (value, item) => {
+  const list = Array.isArray(value)
+    ? value
+    : String(value || "").split(",").map(part => part.trim()).filter(Boolean);
+  return list.includes(item);
+};
+
+const ruleCardRefsForSide = (state, side) => [
+  ...(state.players[side].active ? [{ side, zone: "active", index: 0 }] : []),
+  ...state.players[side].bench.map((card, index) => card ? { side, zone: "bench", index } : null).filter(Boolean),
+];
+
+const checkAbilityCondition = (state, condition, context) => {
+  const sourceRef = context.sourceRef;
+  const targetRef = context.damageTargetRef || context.targetRef || null;
+  const source = sourceRef ? targetCard(state.players[sourceRef.side], sourceRef.zone, sourceRef.index) : context.sourceCard;
+  const target = targetRef ? targetCard(state.players[targetRef.side], targetRef.zone, targetRef.index) : context.targetCard;
+
+  switch (condition.type) {
+    case "SOURCE_POSITION":
+      return String(condition.value || "ACTIVE").toUpperCase() === sourcePosition(sourceRef);
+    case "TARGET_NATURE_IN":
+      return (target?.natures || []).some(nature => valuesInclude(condition.value, nature));
+    case "TARGET_IS_DAMAGED":
+      return target && (target.hp_remaining || 0) < (target.hp || 0);
+    case "SELF_HAS_ENERGY_TYPE":
+      return (source?.attached_energy || []).some(type => valuesInclude(condition.value, type));
+    case "SELF_ENERGY_COUNT_GTE":
+      return (source?.attached_energy || []).length >= (parseInt(condition.value, 10) || 0);
+    default:
+      return false;
+  }
+};
+
+function resolveAbilityRules(state, side, sourceRef, trigger, context = {}) {
+  const source = sourceRef ? targetCard(state.players[sourceRef.side], sourceRef.zone, sourceRef.index) : null;
+  if (!source) return state;
+
+  return (source.abilities || []).reduce((next, ability) => {
+    const rules = normalizeAbilityRules(ability.rules).filter(rule => rule.trigger === trigger);
+    if (rules.length === 0) return next;
+
+    return rules.reduce((afterRule, rule) => {
+      const ruleContext = {
+        ...context,
+        trigger,
+        sourceRef,
+        sourceCard: source,
+      };
+      if (!rule.conditions.every(condition => checkAbilityCondition(afterRule, condition, ruleContext))) return afterRule;
+      const resolved = resolveEffects(afterRule, side, source, rule.effects, {
+        ...ruleContext,
+        suppressRuleTriggers: true,
+        skipKnockoutCheck: true,
+      });
+      return withLog(resolved, `${source.name} ativou ${ability.name}.`);
+    }, next);
+  }, state);
+}
+
+function effectsForAbilityTrigger(state, side, sourceRef, ability, trigger, context = {}) {
+  const rules = normalizeAbilityRules(ability?.rules);
+  if (rules.length === 0) return abilityEffects(ability);
+  const source = sourceRef ? targetCard(state.players[sourceRef.side], sourceRef.zone, sourceRef.index) : null;
+  return rules
+    .filter(rule => rule.trigger === trigger)
+    .filter(rule => rule.conditions.every(condition => checkAbilityCondition(state, condition, {
+      ...context,
+      trigger,
+      sourceRef,
+      sourceCard: source,
+    })))
+    .flatMap(rule => rule.effects);
+}
+
+function resolveAbilityRulesForSide(state, side, trigger, context = {}) {
+  return ruleCardRefsForSide(state, side).reduce((next, ref) => (
+    resolveAbilityRules(next, side, ref, trigger, context)
+  ), state);
+}
+
 function resolveEquipmentTrigger(state, side, equippedCardRef, trigger, context = {}) {
   const equipped = targetCard(state.players[equippedCardRef.side], equippedCardRef.zone, equippedCardRef.index);
   if (!equipped || (equipped.equipments || []).length === 0) return state;
 
   return (equipped.equipments || []).reduce((next, equipment) => {
     const effects = normalizeEffects(equipment.passive_effects)
-      .filter(effect => effect.condition === trigger);
+      .filter(effect => shouldApplyEquipmentPassiveEffect(effect, trigger));
     if (effects.length === 0) return next;
 
     return resolveEffects(next, side, equipment, effects, {
@@ -978,9 +1064,12 @@ function applyEndTurnEffects(state, side) {
     next = resolveKnockouts(next, opponentOf(side));
   }
   if (!next.winner) {
+    next = resolveAbilityRulesForSide(next, side, ABILITY_TRIGGERS.ON_TURN_END);
+  }
+  if (!next.winner) {
     next = updateSide(next, side, clearSideTurnStatuses);
   }
-  return next;
+  return resolveKnockouts(next, side);
 }
 
 const resolveKnockouts = (state, attackerSide) => {
@@ -989,6 +1078,10 @@ const resolveKnockouts = (state, attackerSide) => {
     const active = next.players[side].active;
     if (active && active.hp_remaining <= 0) {
       const points = knockoutPoints(active);
+      next = resolveAbilityRulesForSide(next, attackerSide, ABILITY_TRIGGERS.ON_KNOCKOUT, {
+        targetRef: { side, zone: "active", index: 0 },
+        knockedOutCard: active,
+      });
       next = updateSide(next, attackerSide, p => ({ ...p, points: p.points + points }));
       next = updateSide(next, side, p => {
         const updated = clone(p);
@@ -1006,6 +1099,10 @@ const resolveKnockouts = (state, attackerSide) => {
 
     defeatedBench.forEach(({ card, index }) => {
       const points = knockoutPoints(card);
+      next = resolveAbilityRulesForSide(next, attackerSide, ABILITY_TRIGGERS.ON_KNOCKOUT, {
+        targetRef: { side, zone: "bench", index },
+        knockedOutCard: card,
+      });
       next = updateSide(next, attackerSide, p => ({ ...p, points: p.points + points }));
       next = updateSide(next, side, p => {
         const updated = clone(p);
@@ -1206,6 +1303,24 @@ export function resolveEffects(state, side, sourceCard, effects, context = {}) {
               EFFECT_CONDITIONS.EQUIPPED_CARD_DEALS_DAMAGE,
               { damageSourceRef, damageTargetRef }
             );
+          }
+        }
+        if (total > 0 && !context.suppressRuleTriggers) {
+          const damageSourceRef = effect.damage_source_ref || sourceRef;
+          const damageTargetRef = redirectedRef;
+          next = resolveAbilityRules(next, redirectedRef.side, damageTargetRef, ABILITY_TRIGGERS.ON_DAMAGE_TAKEN, {
+            damageSourceRef,
+            damageTargetRef,
+            targetRef: damageTargetRef,
+            damageAmount: total,
+          });
+          if (redirectedRef.zone === "active") {
+            next = resolveAbilityRulesForSide(next, redirectedRef.side, ABILITY_TRIGGERS.ALLY_ACTIVE_TAKES_DAMAGE, {
+              damageSourceRef,
+              damageTargetRef,
+              targetRef: damageTargetRef,
+              damageAmount: total,
+            });
           }
         }
       } else if (HEAL_EFFECTS.has(effect.type)) {
@@ -1435,7 +1550,12 @@ export function attachEnergy(state, side, zone, targetIndex) {
     return updated;
   });
 
-  return withLog(next, `${player.name} anexou energia ${energyType} em ${target.name}.`);
+  next = withLog(next, `${player.name} anexou energia ${energyType} em ${target.name}.`);
+  next = resolveAbilityRules(next, side, { side, zone, index: targetIndex }, ABILITY_TRIGGERS.ON_ENERGY_ATTACHED, {
+    attachedEnergyType: energyType,
+    targetRef: { side, zone, index: targetIndex },
+  });
+  return resolveKnockouts(next, side);
 }
 
 export function canAttackThisTurn(state, side, abilityIndex = null) {
@@ -1464,7 +1584,11 @@ export function activateAbility(state, side, abilityIndex, context = {}) {
   }
 
   let next = withLog(state, `${attacker.name} usou ${ability.name}.`);
-  next = resolveEffects(next, side, active, abilityEffects(ability), context);
+  const sourceRef = { side, zone: "active", index: 0 };
+  next = resolveEffects(next, side, active, effectsForAbilityTrigger(next, side, sourceRef, ability, ABILITY_TRIGGERS.ON_ATTACK, context), {
+    ...context,
+    sourceRef,
+  });
   next = updateSide(next, side, p => ({
     ...p,
     active: p.active ? { ...p.active, last_used_ability_name: ability.name } : p.active,
@@ -1557,7 +1681,9 @@ export function endTurn(state) {
     energy_remaining: ENERGY_PER_TURN,
   }));
 
-  return withLog(next, `Turno de ${next.players[nextSide].name}.`);
+  next = withLog(next, `Turno de ${next.players[nextSide].name}.`);
+  next = resolveAbilityRulesForSide(next, nextSide, ABILITY_TRIGGERS.ON_TURN_START);
+  return resolveKnockouts(next, nextSide);
 }
 
 export function runBotTurn(state) {

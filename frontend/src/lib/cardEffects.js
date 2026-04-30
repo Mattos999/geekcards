@@ -329,10 +329,100 @@ export const EFFECT_CONDITION_LABELS = {
   [EFFECT_CONDITIONS.EQUIPPED_CARD_HAS_EQUIPMENT]: "Se tiver equipamento anexado",
 };
 
+export const EQUIPMENT_DAMAGE_BONUS_EFFECT_TYPES = new Set([
+  EFFECT_TYPES.BUFF_DAMAGE,
+  EFFECT_TYPES.BUFF_DAMAGE_THIS_TURN,
+  EFFECT_TYPES.BUFF_DAMAGE_NEXT_TURN,
+  EFFECT_TYPES.BUFF_EQUIPPED_CARD_DAMAGE,
+  EFFECT_TYPES.BUFF_DAMAGE_BY_TAG,
+  EFFECT_TYPES.BUFF_DAMAGE_BY_ATTACHED_ENERGY,
+]);
+
+export const EQUIPMENT_ON_EQUIP_EFFECT_TYPES = new Set([
+  EFFECT_TYPES.HEAL,
+  EFFECT_TYPES.HEAL_SELF,
+  EFFECT_TYPES.HEAL_ACTIVE,
+  EFFECT_TYPES.HEAL_EQUIPPED_CARD,
+  EFFECT_TYPES.ADD_ENERGY,
+  EFFECT_TYPES.ADD_TYPED_ENERGY,
+  EFFECT_TYPES.ADD_ENERGY_TO_ACTIVE,
+  EFFECT_TYPES.ADD_MULTIPLE_ENERGY,
+  EFFECT_TYPES.BURN,
+  EFFECT_TYPES.PARALYZE,
+  EFFECT_TYPES.FREEZE,
+  EFFECT_TYPES.CONFUSE,
+  EFFECT_TYPES.PREVENT_ATTACK,
+  EFFECT_TYPES.PREVENT_RETREAT,
+  EFFECT_TYPES.SKIP_NEXT_ATTACK,
+  EFFECT_TYPES.CANNOT_USE_SAME_ATTACK_NEXT_TURN,
+  EFFECT_TYPES.BUFF_BASE_ATTRIBUTES,
+  EFFECT_TYPES.INCREASE_MAX_HP,
+  EFFECT_TYPES.BUFF_HEAL_AMOUNT,
+  EFFECT_TYPES.DOUBLE_DAMAGE_AGAINST_TYPE,
+  EFFECT_TYPES.WEAKNESS_OVERRIDE,
+  EFFECT_TYPES.ALPHA_POINT_OVERRIDE,
+  EFFECT_TYPES.REDUCE_DAMAGE,
+  EFFECT_TYPES.REDUCE_NEXT_DAMAGE,
+  EFFECT_TYPES.PREVENT_DAMAGE,
+  EFFECT_TYPES.IMMUNE_TO_DAMAGE_TYPE,
+  EFFECT_TYPES.IMMUNE_TO_NEGATIVE_EFFECTS,
+  EFFECT_TYPES.IGNORE_TOOL_EFFECTS,
+  EFFECT_TYPES.HALVE_DAMAGE_TAKEN,
+  EFFECT_TYPES.REFLECT_DAMAGE,
+  EFFECT_TYPES.REFLECT_DOUBLE_DAMAGE,
+  EFFECT_TYPES.REDIRECT_DAMAGE,
+  EFFECT_TYPES.SHARE_DAMAGE,
+  EFFECT_TYPES.ENERGY_ANY_TYPE,
+  EFFECT_TYPES.ENERGY_COST_REDUCTION,
+  EFFECT_TYPES.ENERGY_REQUIRED_TYPE,
+  EFFECT_TYPES.IGNORE_RETREAT_COST,
+  EFFECT_TYPES.REDUCE_RETREAT_COST,
+  EFFECT_TYPES.BLOCK_RETREAT,
+  EFFECT_TYPES.ATTACK_FROM_BENCH,
+]);
+
+export const ABILITY_TRIGGERS = {
+  ON_ATTACK: "ON_ATTACK",
+  ON_DAMAGE_TAKEN: "ON_DAMAGE_TAKEN",
+  ALLY_ACTIVE_TAKES_DAMAGE: "ALLY_ACTIVE_TAKES_DAMAGE",
+  ON_ENERGY_ATTACHED: "ON_ENERGY_ATTACHED",
+  ON_TURN_START: "ON_TURN_START",
+  ON_TURN_END: "ON_TURN_END",
+  ON_KNOCKOUT: "ON_KNOCKOUT",
+};
+
+export const ABILITY_TRIGGER_LABELS = {
+  [ABILITY_TRIGGERS.ON_ATTACK]: "Ao atacar",
+  [ABILITY_TRIGGERS.ON_DAMAGE_TAKEN]: "Ao receber dano",
+  [ABILITY_TRIGGERS.ALLY_ACTIVE_TAKES_DAMAGE]: "Quando aliada ativa recebe dano",
+  [ABILITY_TRIGGERS.ON_ENERGY_ATTACHED]: "Ao anexar energia",
+  [ABILITY_TRIGGERS.ON_TURN_START]: "No inicio do turno",
+  [ABILITY_TRIGGERS.ON_TURN_END]: "No fim do turno",
+  [ABILITY_TRIGGERS.ON_KNOCKOUT]: "Ao nocautear",
+};
+
+export const ABILITY_CONDITION_TYPES = {
+  SOURCE_POSITION: "SOURCE_POSITION",
+  TARGET_NATURE_IN: "TARGET_NATURE_IN",
+  TARGET_IS_DAMAGED: "TARGET_IS_DAMAGED",
+  SELF_HAS_ENERGY_TYPE: "SELF_HAS_ENERGY_TYPE",
+  SELF_ENERGY_COUNT_GTE: "SELF_ENERGY_COUNT_GTE",
+};
+
+export const ABILITY_CONDITION_LABELS = {
+  [ABILITY_CONDITION_TYPES.SOURCE_POSITION]: "Posicao da fonte",
+  [ABILITY_CONDITION_TYPES.TARGET_NATURE_IN]: "Natureza do alvo esta em",
+  [ABILITY_CONDITION_TYPES.TARGET_IS_DAMAGED]: "Alvo esta ferido",
+  [ABILITY_CONDITION_TYPES.SELF_HAS_ENERGY_TYPE]: "Fonte tem energia",
+  [ABILITY_CONDITION_TYPES.SELF_ENERGY_COUNT_GTE]: "Fonte tem energia minima",
+};
+
 export const effectTypeLabel = type => EFFECT_TYPE_LABELS[type] || labelFromValue(type);
 export const targetLabel = target => TARGET_LABELS[target] || labelFromValue(target);
 export const durationLabel = duration => DURATION_LABELS[duration] || labelFromValue(duration);
 export const conditionLabel = condition => EFFECT_CONDITION_LABELS[condition || ""] || labelFromValue(condition);
+export const abilityTriggerLabel = trigger => ABILITY_TRIGGER_LABELS[trigger] || labelFromValue(trigger);
+export const abilityConditionLabel = type => ABILITY_CONDITION_LABELS[type] || labelFromValue(type);
 
 export const normalizeEffects = effects => (
   Array.isArray(effects)
@@ -353,6 +443,29 @@ export const normalizeEffects = effects => (
     : []
 );
 
+export const shouldApplyEquipmentPassiveEffect = (effect, trigger) => {
+  if (!effect?.type || !trigger) return false;
+  const condition = effect.condition || EFFECT_CONDITIONS.ALWAYS;
+  if (condition === trigger) return true;
+  return (
+    trigger === EFFECT_CONDITIONS.ON_EQUIP &&
+    condition === EFFECT_CONDITIONS.ALWAYS &&
+    EQUIPMENT_ON_EQUIP_EFFECT_TYPES.has(effect.type)
+  );
+};
+
+export const normalizeEquipmentPassiveEffects = effects => (
+  normalizeEffects(effects).map(effect => ({
+    ...effect,
+    condition: (
+      (effect.condition || EFFECT_CONDITIONS.ALWAYS) === EFFECT_CONDITIONS.ALWAYS &&
+      EQUIPMENT_ON_EQUIP_EFFECT_TYPES.has(effect.type)
+    )
+      ? EFFECT_CONDITIONS.ON_EQUIP
+      : effect.condition,
+  }))
+);
+
 export const effectSummary = effect => {
   const type = effectTypeLabel(effect.type);
   const target = targetLabel(effect.target);
@@ -368,4 +481,45 @@ export const effectSummary = effect => {
   ].filter(Boolean);
   const extra = details.length ? ` | ${details.join(" / ")}` : "";
   return `${type}${amount} - ${target}${duration}${condition}${extra}`;
+};
+
+const normalizeConditionValue = value => {
+  if (Array.isArray(value)) return value.map(item => String(item).trim()).filter(Boolean);
+  if (typeof value === "string" && value.includes(",")) {
+    return value.split(",").map(item => item.trim()).filter(Boolean);
+  }
+  return value ?? "";
+};
+
+export const normalizeAbilityConditions = conditions => (
+  Array.isArray(conditions)
+    ? conditions
+        .filter(condition => condition?.type)
+        .map(condition => ({
+          type: condition.type,
+          value: normalizeConditionValue(condition.value),
+        }))
+    : []
+);
+
+export const normalizeAbilityRules = rules => (
+  Array.isArray(rules)
+    ? rules
+        .filter(rule => rule?.trigger)
+        .map(rule => ({
+          trigger: rule.trigger,
+          conditions: normalizeAbilityConditions(rule.conditions),
+          effects: normalizeEffects(rule.effects),
+          duration: rule.duration || DURATIONS.INSTANT,
+        }))
+        .filter(rule => rule.effects.length > 0)
+    : []
+);
+
+export const ruleSummary = rule => {
+  const effects = normalizeEffects(rule.effects).map(effectSummary).join(" + ");
+  const conditions = normalizeAbilityConditions(rule.conditions)
+    .map(condition => `${abilityConditionLabel(condition.type)}: ${Array.isArray(condition.value) ? condition.value.join(", ") : condition.value}`)
+    .join(" | ");
+  return `${abilityTriggerLabel(rule.trigger)}${conditions ? ` (${conditions})` : ""}: ${effects}`;
 };

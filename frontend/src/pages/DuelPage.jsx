@@ -2,6 +2,7 @@ import React, { useMemo, useState, useEffect } from "react";
 import { api, formatApiError, imageUrl } from "../lib/api";
 import { NATURE_COLORS } from "../lib/natures";
 import { EnergyCostSymbols } from "../components/EnergyCostSymbols";
+import { ENERGY_SYMBOLS } from "../lib/energyCosts";
 import { CommunityCardDetailModal } from "../components/CommunityCardDetailModal";
 import { EFFECT_TYPES, TARGETS, normalizeEffects } from "../lib/cardEffects";
 import {
@@ -26,6 +27,32 @@ import {
 } from "../lib/duelEngine";
 import { Archive, Bot, ChevronRight, Loader2, Play, RotateCcw, Shield, Sparkles, Sword, Users, X, Zap } from "lucide-react";
 import { toast } from "sonner";
+
+const ENERGY_SYMBOL_CLASSES = {
+  Superior: "border-yellow-300/40 bg-yellow-300/15 text-yellow-200",
+  Natural: "border-emerald-300/40 bg-emerald-300/15 text-emerald-200",
+  Interior: "border-sky-300/40 bg-sky-300/15 text-sky-200",
+  Universal: "border-slate-300/40 bg-slate-300/15 text-slate-100",
+};
+
+const AttachedEnergySymbols = ({ energies = [], compact = false }) => {
+  const attached = (energies || []).filter(Boolean);
+  if (attached.length === 0) return null;
+
+  return (
+    <div className={`mt-1 flex flex-wrap justify-center gap-0.5 ${compact ? "max-w-16" : "max-w-28"}`}>
+      {attached.map((energy, index) => (
+        <span
+          key={`${energy}-${index}`}
+          title={energy}
+          className={`inline-flex items-center justify-center rounded-full border ${compact ? "h-4 w-4" : "h-5 w-5"} ${ENERGY_SYMBOL_CLASSES[energy] || ENERGY_SYMBOL_CLASSES.Universal}`}
+        >
+          {ENERGY_SYMBOLS[energy] || ENERGY_SYMBOLS.Universal}
+        </span>
+      ))}
+    </div>
+  );
+};
 
 const CardThumb = ({ card, compact = false, onClick }) => {
   if (!card) {
@@ -58,6 +85,7 @@ const CardThumb = ({ card, compact = false, onClick }) => {
             {card.hp_remaining}/{card.hp || 0} HP
           </div>
         )}
+        <AttachedEnergySymbols energies={card.attached_energy} compact={compact} />
       </div>
       {card.is_alpha && (
         <div className="absolute left-1 top-1 rounded bg-yellow-300 px-1 text-[8px] font-black text-slate-950">A</div>
@@ -585,6 +613,28 @@ export default function DuelPage() {
     const inviteReceived = activeOnlineDuel?.status === "invited" && activeOnlineDuel?.invitee_id === activeOnlineDuel?.me?.user_id;
     const inviteSent = activeOnlineDuel?.status === "invited" && !inviteReceived;
     const onlineHasDuelProcess = Boolean(activeOnlineDuel && activeOnlineDuel.status !== "invited");
+    const onlineEvolutionStage = card => {
+      if (!card?.is_evolution) return 1;
+      return { I: 2, II: 2, III: 3, IV: 4 }[String(card.evolution_number || "II").toUpperCase()] || 2;
+    };
+    const onlineCanEvolveTarget = (evolution, target) => {
+      if (!evolution?.is_evolution || !target || target.entered_turn >= (onlineState?.turn_number || 1)) return false;
+      if (onlineEvolutionStage(evolution) !== onlineEvolutionStage(target) + 1) return false;
+      if (evolution.evolves_from_card_id || evolution.evolves_from_name) {
+        return (
+          evolution.evolves_from_card_id === target.id ||
+          evolution.evolves_from_card_id === target.source_card_id ||
+          evolution.evolves_from_name === target.name
+        );
+      }
+      return true;
+    };
+    const onlineEvolutionTargets = card => [
+      ...(onlineCanEvolveTarget(card, onlinePlayer?.active) ? [{ zone: "active", index: 0, label: "Evoluir ativa" }] : []),
+      ...((onlinePlayer?.bench || []).map((target, index) =>
+        onlineCanEvolveTarget(card, target) ? { zone: "bench", index, label: `Evoluir banco ${index + 1}` } : null
+      ).filter(Boolean)),
+    ];
 
     return (
       <div className="p-6 max-w-[1500px] mx-auto">
@@ -894,6 +944,24 @@ export default function DuelPage() {
                               <CardThumb card={card} onClick={() => setDetailCard(card)} />
                               {onlineIsPlayerTurn && card.card_type === "Personagem" && !card.is_evolution && (
                                 <button onClick={() => onlineAction({ kind: "play_to_bench", hand_index: index })} disabled={(onlinePlayer.bench?.length || 0) >= DUEL_RULES.BENCH_LIMIT} className="w-full rounded bg-indigo-500/15 px-2 py-1 text-[10px] text-indigo-200 disabled:opacity-40">Banco</button>
+                              )}
+                              {onlineIsPlayerTurn && card.is_evolution && onlineEvolutionTargets(card).map(target => (
+                                <button
+                                  key={`${target.zone}-${target.index}`}
+                                  onClick={() => onlineAction({ kind: "evolve", hand_index: index, zone: target.zone, target_index: target.index })}
+                                  className="w-full rounded bg-cyan-500/15 px-2 py-1 text-[10px] text-cyan-100"
+                                >
+                                  {target.label}
+                                </button>
+                              ))}
+                              {onlineIsPlayerTurn && card.card_type !== "Personagem" && card.card_type !== "Energia" && (
+                                <button
+                                  onClick={() => onlineAction({ kind: "play_action", hand_index: index, zone: "active", target_index: 0 })}
+                                  disabled={card.card_type === "Equipamento" && (!onlinePlayer.active || (onlinePlayer.active.equipments || []).length > 0)}
+                                  className="w-full rounded bg-fuchsia-500/15 px-2 py-1 text-[10px] text-fuchsia-200 disabled:opacity-40"
+                                >
+                                  {card.card_type === "Equipamento" ? "Equipar" : "Usar"}
+                                </button>
                               )}
                             </div>
                           ))}

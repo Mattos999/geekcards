@@ -13,6 +13,8 @@ import {
   TARGET_LABELS,
   effectSummary,
   effectTypeLabel,
+  normalizeAbilityRules,
+  normalizeEquipmentPassiveEffects,
   normalizeEffects,
 } from "../lib/cardEffects";
 import { Loader2, X, Plus, Zap, Upload } from "lucide-react";
@@ -61,6 +63,18 @@ const EFFECT_FIELD_CONFIG = {
 };
 const DEFAULT_EFFECT_FIELDS = ["target", "amount", "duration"];
 
+const effectFieldsFor = type => EFFECT_FIELD_CONFIG[type] || DEFAULT_EFFECT_FIELDS;
+
+const sanitizeEffectDraft = effect => {
+  const fields = effectFieldsFor(effect?.type);
+  return {
+    ...(effect || BLANK_EFFECT),
+    duration: effect?.duration || DURATIONS.INSTANT,
+    amount: parseInt(effect?.amount, 10) || 0,
+    condition: fields.includes("condition") ? (effect?.condition || EFFECT_CONDITIONS.ALWAYS) : EFFECT_CONDITIONS.ALWAYS,
+  };
+};
+
 const EffectsList = ({ effects, onRemove }) => (
   normalizeEffects(effects).length > 0 && (
     <div className="flex flex-wrap gap-2">
@@ -80,7 +94,7 @@ const EffectsList = ({ effects, onRemove }) => (
 );
 
 const EffectControls = ({ effect, onChange, onAdd }) => {
-  const inputCls = "min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none";
+  const inputCls = "w-full min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none";
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -141,21 +155,23 @@ const EffectControls = ({ effect, onChange, onAdd }) => {
           <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Marcador</span>
           <input value={effect.tag || ""} onChange={e => onChange("tag", e.target.value)} className={inputCls} />
         </label>
-        <button
-          type="button"
-          onClick={onAdd}
-          className="inline-flex h-10 items-center justify-center rounded-lg border border-indigo-500/40 bg-indigo-500/20 px-3 text-xs text-indigo-200 hover:bg-indigo-500/30 sm:mt-5"
-        >
-          <Plus size={13} />
-        </button>
+        <div className="flex justify-end sm:col-span-2">
+          <button
+            type="button"
+            onClick={onAdd}
+            className="inline-flex h-10 items-center justify-center rounded-lg border border-indigo-500/40 bg-indigo-500/20 px-4 text-xs text-indigo-200 hover:bg-indigo-500/30"
+          >
+            <Plus size={13} />
+          </button>
+        </div>
       </div>
     </div>
   );
 };
 
 const DynamicEffectControls = ({ effect, onChange, onAdd }) => {
-  const inputCls = "min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none";
-  const fields = EFFECT_FIELD_CONFIG[effect.type] || DEFAULT_EFFECT_FIELDS;
+  const inputCls = "w-full min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none";
+  const fields = effectFieldsFor(effect.type);
   const show = field => fields.includes(field);
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
@@ -235,13 +251,15 @@ const DynamicEffectControls = ({ effect, onChange, onAdd }) => {
             <input value={effect.tag || ""} onChange={e => onChange("tag", e.target.value)} className={inputCls} />
           </label>
         )}
-        <button
-          type="button"
-          onClick={onAdd}
-          className="mt-2 inline-flex h-10 basis-full items-center justify-center rounded-lg border border-indigo-500/40 bg-indigo-500/20 px-3 text-xs text-indigo-200 hover:bg-indigo-500/30 sm:max-w-44"
-        >
-          <Plus size={13} />
-        </button>
+        <div className="mt-2 flex basis-full justify-end">
+          <button
+            type="button"
+            onClick={onAdd}
+            className="inline-flex h-10 items-center justify-center rounded-lg border border-indigo-500/40 bg-indigo-500/20 px-4 text-xs text-indigo-200 hover:bg-indigo-500/30"
+          >
+            <Plus size={13} />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -285,6 +303,7 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
         energy_cost: ab.energy_cost ?? 0,
         energy_costs: normalizeAbilityEnergyCosts(ab),
         effects: normalizeEffects(ab.effects),
+        rules: normalizeAbilityRules(ab.rules),
         effect_to_add: { ...BLANK_EFFECT, amount: ab.damage ?? 0 },
         energy_type_to_add: ENERGY_TYPES[0],
         energy_amount_to_add: 1,
@@ -434,11 +453,7 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
     const ability = form.abilities[abilityIndex];
     const effects = [
       ...normalizeEffects(ability.effects),
-      {
-        ...(ability.effect_to_add || BLANK_EFFECT),
-        duration: ability.effect_to_add?.duration || DURATIONS.INSTANT,
-        amount: parseInt(ability.effect_to_add?.amount, 10) || 0,
-      },
+      sanitizeEffectDraft(ability.effect_to_add || BLANK_EFFECT),
     ];
     const list = [...form.abilities];
     list[abilityIndex] = {
@@ -472,12 +487,10 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
     setForm(f => ({
       ...f,
       [listField]: [
-        ...normalizeEffects(f[listField]),
-        {
-          ...(f[draftField] || resetEffect),
-          duration: f[draftField]?.duration || DURATIONS.INSTANT,
-          amount: parseInt(f[draftField]?.amount, 10) || 0,
-        },
+        ...(listField === "passive_effects" ? normalizeEquipmentPassiveEffects(f[listField]) : normalizeEffects(f[listField])),
+        ...(listField === "passive_effects"
+          ? normalizeEquipmentPassiveEffects([sanitizeEffectDraft(f[draftField] || resetEffect)])
+          : [sanitizeEffectDraft(f[draftField] || resetEffect)]),
       ],
       [draftField]: { ...resetEffect },
     }));
@@ -500,7 +513,7 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
         evolves_from_card_id: form.is_evolution ? (form.evolves_from_card_id || null) : null,
         evolves_from_name: form.is_evolution ? (form.evolves_from_name || null) : null,
         effects: normalizeEffects(form.effects),
-        passive_effects: normalizeEffects(form.passive_effects),
+        passive_effects: normalizeEquipmentPassiveEffects(form.passive_effects),
         abilities: form.abilities.map(({
           energy_type_to_add,
           energy_amount_to_add,
@@ -510,6 +523,7 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
           ...ability,
           energy_costs: sanitizeEnergyCosts(ability.energy_costs),
           effects: normalizeEffects(ability.effects),
+          rules: normalizeAbilityRules(ability.rules),
           energy_cost: totalEnergyCost(ability.energy_costs),
         })),
       };

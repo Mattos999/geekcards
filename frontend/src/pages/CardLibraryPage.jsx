@@ -4,7 +4,7 @@ import { api, formatApiError } from "../lib/api";
 import { NATURES, CARD_TYPES } from "../lib/natures";
 import { GameCard } from "../components/GameCard";
 import { CommunityCardDetailModal } from "../components/CommunityCardDetailModal";
-import { Search, Plus, Sparkles } from "lucide-react";
+import { Search, Plus, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 export default function CardLibraryPage() {
@@ -30,6 +30,22 @@ export default function CardLibraryPage() {
     if (alphaOnly && !c.is_alpha) return false;
     return true;
   }), [cards, q, natureFilter, typeFilter, alphaOnly]);
+
+  const removeFromLibrary = async card => {
+    const message = card.public_status === "approved" || card.is_library_reference
+      ? "Remover esta carta da sua biblioteca pessoal?"
+      : "Excluir esta carta?";
+    if (!window.confirm(message)) return;
+
+    try {
+      await api.delete(`/cards/${card.id}`);
+      setCards(current => current.filter(item => item.id !== card.id));
+      toast.success("Carta removida da sua biblioteca");
+      if (selectedCard?.id === card.id) setSelectedCard(null);
+    } catch (e) {
+      toast.error(formatApiError(e));
+    }
+  };
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
@@ -105,6 +121,15 @@ export default function CardLibraryPage() {
                   {c.public_status === "approved" ? "● Pública" : c.public_status === "pending" ? "● Em análise" : "● Rejeitada"}
                 </div>
               )}
+              <button
+                type="button"
+                onClick={() => removeFromLibrary(c)}
+                className="w-40 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-200 hover:bg-rose-500/20"
+              >
+                <span className="inline-flex items-center justify-center gap-1.5">
+                  <Trash2 size={12} /> Remover
+                </span>
+              </button>
             </div>
           ))}
         </div>

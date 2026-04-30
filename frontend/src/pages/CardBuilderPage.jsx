@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, formatApiError } from "../lib/api";
 import { NATURES, NATURE_COLORS, CARD_TYPES, ENERGY_TYPES, computeEffectiveWeaknesses } from "../lib/natures";
@@ -6,6 +6,10 @@ import { GameCard } from "../components/GameCard";
 import { EnergyCostSymbols } from "../components/EnergyCostSymbols";
 import { normalizeAbilityEnergyCosts, sanitizeEnergyCosts, totalEnergyCost } from "../lib/energyCosts";
 import {
+  ABILITY_CONDITION_LABELS,
+  ABILITY_CONDITION_TYPES,
+  ABILITY_TRIGGER_LABELS,
+  ABILITY_TRIGGERS,
   EFFECT_TYPES,
   EFFECT_CONDITION_LABELS,
   EFFECT_CONDITIONS,
@@ -15,7 +19,11 @@ import {
   TARGETS,
   effectSummary,
   effectTypeLabel,
+  normalizeAbilityConditions,
+  normalizeAbilityRules,
+  normalizeEquipmentPassiveEffects,
   normalizeEffects,
+  ruleSummary,
 } from "../lib/cardEffects";
 import { Upload, Save, Trash2, X, Plus, Zap } from "lucide-react";
 import { toast } from "sonner";
@@ -41,6 +49,20 @@ const BLANK_EFFECT = {
   condition: EFFECT_CONDITIONS.ALWAYS,
 };
 
+const BLANK_RULE_CONDITION = {
+  type: ABILITY_CONDITION_TYPES.SOURCE_POSITION,
+  value: "ACTIVE",
+};
+
+const BLANK_RULE = {
+  trigger: ABILITY_TRIGGERS.ON_ATTACK,
+  conditions: [],
+  effects: [],
+  duration: DURATIONS.INSTANT,
+  condition_to_add: BLANK_RULE_CONDITION,
+  effect_to_add: BLANK_EFFECT,
+};
+
 const EFFECT_ATTRIBUTES = [
   { value: "hp", label: "HP" },
   { value: "damage", label: "Dano" },
@@ -48,7 +70,7 @@ const EFFECT_ATTRIBUTES = [
   { value: "cura", label: "Cura" },
 ];
 
-const DEFAULT_EFFECT_FIELDS = ["target", "duration", "condition", "amount"];
+const DEFAULT_EFFECT_FIELDS = ["target", "duration", "amount"];
 
 const EFFECT_FIELD_CONFIG = {
   [EFFECT_TYPES.DAMAGE]: ["target", "amount"],
@@ -172,6 +194,26 @@ const EFFECT_FIELD_CONFIG = {
   [EFFECT_TYPES.PLAY_ITEM_AS_UNIT]: ["target", "duration"],
 };
 
+const effectFieldsFor = type => EFFECT_FIELD_CONFIG[type] ?? DEFAULT_EFFECT_FIELDS;
+
+const sanitizeEffectDraft = effect => {
+  const fields = effectFieldsFor(effect?.type);
+  return {
+    ...(effect || BLANK_EFFECT),
+    duration: effect?.duration || DURATIONS.INSTANT,
+    amount: parseInt(effect?.amount, 10) || 0,
+    condition: fields.includes("condition") ? (effect?.condition || EFFECT_CONDITIONS.ALWAYS) : EFFECT_CONDITIONS.ALWAYS,
+  };
+};
+
+const makeBlankRule = () => ({
+  ...BLANK_RULE,
+  conditions: [],
+  effects: [],
+  condition_to_add: { ...BLANK_RULE_CONDITION },
+  effect_to_add: { ...BLANK_EFFECT },
+});
+
 const getEvolutionStage = card => {
   if (!card?.is_evolution) return 1;
   const stages = { I: 2, II: 2, III: 3, IV: 4 };
@@ -179,8 +221,8 @@ const getEvolutionStage = card => {
 };
 
 const EffectControls = ({ effect, onChange, onAdd }) => {
-  const fields = EFFECT_FIELD_CONFIG[effect.type] ?? DEFAULT_EFFECT_FIELDS;
-  const inputCls = "min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none";
+  const fields = effectFieldsFor(effect.type);
+  const inputCls = "w-full min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none";
   const show = field => fields.includes(field);
 
   const fieldLabels = {
@@ -303,14 +345,16 @@ const EffectControls = ({ effect, onChange, onAdd }) => {
           </label>
         )}
 
-        <button
-          type="button"
-          onClick={onAdd}
-          className="mt-2 inline-flex h-10 basis-full items-center justify-center rounded-lg border border-indigo-500/40 bg-indigo-500/20 px-3 text-xs text-indigo-200 hover:bg-indigo-500/30 sm:max-w-44"
-          aria-label="Adicionar efeito"
-        >
-          <Plus size={13} />
-        </button>
+        <div className="mt-2 flex basis-full justify-end">
+          <button
+            type="button"
+            onClick={onAdd}
+            className="inline-flex h-10 items-center justify-center rounded-lg border border-indigo-500/40 bg-indigo-500/20 px-4 text-xs text-indigo-200 hover:bg-indigo-500/30"
+            aria-label="Adicionar efeito"
+          >
+            <Plus size={13} />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -342,6 +386,7 @@ export default function CardBuilderPage() {
   const [uploading, setUploading] = useState(false);
   const [abilityDraft, setAbilityDraft] = useState(null);
   const [editingAbilityIndex, setEditingAbilityIndex] = useState(null);
+  const committingAbilityRef = useRef(false);
   const [evolutionOptions, setEvolutionOptions] = useState([]);
   const [cardEffectDraft, setCardEffectDraft] = useState(BLANK_EFFECT);
   const [passiveEffectDraft, setPassiveEffectDraft] = useState({
@@ -405,6 +450,8 @@ export default function CardBuilderPage() {
     energy_costs: normalizeAbilityEnergyCosts(ability),
     effects: normalizeEffects(ability.effects),
     effect_to_add: { ...BLANK_EFFECT, amount: ability.damage ?? 0 },
+    rules: normalizeAbilityRules(ability.rules),
+    rule_to_add: makeBlankRule(),
     energy_type_to_add: ENERGY_TYPES[0],
     energy_amount_to_add: 1
   });
@@ -456,11 +503,7 @@ export default function CardBuilderPage() {
       ...d,
       effects: [
         ...normalizeEffects(d.effects),
-        {
-          ...(d.effect_to_add || BLANK_EFFECT),
-          duration: d.effect_to_add?.duration || DURATIONS.INSTANT,
-          amount: parseInt(d.effect_to_add?.amount, 10) || 0,
-        }
+        sanitizeEffectDraft(d.effect_to_add || BLANK_EFFECT)
       ],
       effect_to_add: { ...BLANK_EFFECT },
     }));
@@ -473,10 +516,137 @@ export default function CardBuilderPage() {
     }));
   };
 
+  const updateRuleDraft = (field, value) => {
+    setAbilityDraft(d => ({
+      ...d,
+      rule_to_add: {
+        ...(d.rule_to_add || makeBlankRule()),
+        [field]: value,
+      },
+    }));
+  };
+
+  const updateRuleConditionDraft = (field, value) => {
+    setAbilityDraft(d => ({
+      ...d,
+      rule_to_add: {
+        ...(d.rule_to_add || makeBlankRule()),
+        condition_to_add: {
+          ...((d.rule_to_add || makeBlankRule()).condition_to_add || BLANK_RULE_CONDITION),
+          [field]: value,
+        },
+      },
+    }));
+  };
+
+  const addRuleCondition = () => {
+    setAbilityDraft(d => {
+      const rule = d.rule_to_add || makeBlankRule();
+      const condition = rule.condition_to_add || BLANK_RULE_CONDITION;
+      return {
+        ...d,
+        rule_to_add: {
+          ...rule,
+          conditions: [...normalizeAbilityConditions(rule.conditions), condition],
+          condition_to_add: { ...BLANK_RULE_CONDITION },
+        },
+      };
+    });
+  };
+
+  const removeRuleCondition = idx => {
+    setAbilityDraft(d => {
+      const rule = d.rule_to_add || makeBlankRule();
+      return {
+        ...d,
+        rule_to_add: {
+          ...rule,
+          conditions: normalizeAbilityConditions(rule.conditions).filter((_, i) => i !== idx),
+        },
+      };
+    });
+  };
+
+  const updateRuleEffectDraft = (field, value) => {
+    setAbilityDraft(d => {
+      const rule = d.rule_to_add || makeBlankRule();
+      return {
+        ...d,
+        rule_to_add: {
+          ...rule,
+          effect_to_add: {
+            ...(rule.effect_to_add || BLANK_EFFECT),
+            [field]: field === "amount" ? parseInt(value, 10) || 0 : value,
+          },
+        },
+      };
+    });
+  };
+
+  const addRuleEffect = () => {
+    setAbilityDraft(d => {
+      const rule = d.rule_to_add || makeBlankRule();
+      return {
+        ...d,
+        rule_to_add: {
+          ...rule,
+          effects: [...normalizeEffects(rule.effects), sanitizeEffectDraft(rule.effect_to_add || BLANK_EFFECT)],
+          effect_to_add: { ...BLANK_EFFECT },
+        },
+      };
+    });
+  };
+
+  const removeRuleEffect = idx => {
+    setAbilityDraft(d => {
+      const rule = d.rule_to_add || makeBlankRule();
+      return {
+        ...d,
+        rule_to_add: {
+          ...rule,
+          effects: normalizeEffects(rule.effects).filter((_, i) => i !== idx),
+        },
+      };
+    });
+  };
+
+  const addAbilityRule = () => {
+    setAbilityDraft(d => {
+      const rule = d.rule_to_add || makeBlankRule();
+      const effects = normalizeEffects(rule.effects);
+      if (effects.length === 0) {
+        toast.error("Adicione pelo menos um efeito na regra");
+        return d;
+      }
+      return {
+        ...d,
+        rules: [
+          ...normalizeAbilityRules(d.rules),
+          {
+            trigger: rule.trigger || ABILITY_TRIGGERS.ON_ATTACK,
+            conditions: normalizeAbilityConditions(rule.conditions),
+            effects,
+            duration: rule.duration || DURATIONS.INSTANT,
+          },
+        ],
+        rule_to_add: makeBlankRule(),
+      };
+    });
+  };
+
+  const removeAbilityRule = idx => {
+    setAbilityDraft(d => ({
+      ...d,
+      rules: normalizeAbilityRules(d.rules).filter((_, i) => i !== idx),
+    }));
+  };
+
   const addCardEffect = (field, effect) => {
     setCard(c => ({
       ...c,
-      [field]: [...normalizeEffects(c[field]), effect]
+      [field]: field === "passive_effects"
+        ? normalizeEquipmentPassiveEffects([...normalizeEffects(c[field]), sanitizeEffectDraft(effect)])
+        : [...normalizeEffects(c[field]), sanitizeEffectDraft(effect)]
     }));
   };
 
@@ -488,11 +658,14 @@ export default function CardBuilderPage() {
   };
 
   const commitAbility = () => {
+  if (committingAbilityRef.current) return;
   if (!abilityDraft.name.trim()) { toast.error("Nome da habilidade é obrigatório"); return; }
+  committingAbilityRef.current = true;
 
   const energyCosts = sanitizeEnergyCosts(abilityDraft.energy_costs);
   const legacyEnergyCost = totalEnergyCost(energyCosts);
   const effects = normalizeEffects(abilityDraft.effects);
+  const rules = normalizeAbilityRules(abilityDraft.rules);
   const damage = effects.find(effect => effect.type === EFFECT_TYPES.DAMAGE)?.amount ?? (abilityDraft.damage ?? 0);
 
   if (editingAbilityIndex !== null) {
@@ -506,7 +679,8 @@ export default function CardBuilderPage() {
         damage,
         energy_cost: legacyEnergyCost,
         energy_costs: energyCosts,
-        effects
+        effects,
+        rules
       };
 
       return { ...c, abilities: updated };
@@ -518,6 +692,7 @@ export default function CardBuilderPage() {
     // ADICIONAR nova habilidade
     if ((card.abilities || []).length >= 3) {
       toast.error("Máximo de 3 habilidades");
+      committingAbilityRef.current = false;
       return;
     }
 
@@ -531,13 +706,15 @@ export default function CardBuilderPage() {
           damage,
           energy_cost: legacyEnergyCost,
           energy_costs: energyCosts,
-          effects
+          effects,
+          rules
         }
       ]
     }));
   }
 
   setAbilityDraft(null);
+  window.setTimeout(() => { committingAbilityRef.current = false; }, 300);
 };
 
   const removeAbility = (idx) => {
@@ -584,10 +761,11 @@ export default function CardBuilderPage() {
       const payload = { ...card };
       if (payload.card_type !== "Energia") payload.energy_type = null;
       payload.effects = normalizeEffects(payload.effects);
-      payload.passive_effects = normalizeEffects(payload.passive_effects);
+      payload.passive_effects = normalizeEquipmentPassiveEffects(payload.passive_effects);
       payload.abilities = (payload.abilities || []).map(ability => ({
         ...ability,
         effects: normalizeEffects(ability.effects),
+        rules: normalizeAbilityRules(ability.rules),
       }));
       if (!payload.is_evolution) {
         payload.evolves_from_card_id = null;
@@ -841,6 +1019,11 @@ export default function CardBuilderPage() {
                           {normalizeEffects(ab.effects).map(effectSummary).join(" | ")}
                         </div>
                       )}
+                      {normalizeAbilityRules(ab.rules).length > 0 && (
+                        <div className="mt-1 text-[10px] text-cyan-300/80">
+                          {normalizeAbilityRules(ab.rules).map(ruleSummary).join(" | ")}
+                        </div>
+                      )}
                     </div>
                     <button
                       type="button"
@@ -948,6 +1131,123 @@ export default function CardBuilderPage() {
                       onAdd={addDraftEffect}
                     />
                     <EffectsList effects={abilityDraft.effects} onRemove={removeDraftEffect} />
+                  </div>
+                  <div className="mb-3 rounded-lg border border-cyan-500/20 bg-cyan-950/10 p-3 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <label className="text-xs text-slate-400">Regras avancadas</label>
+                      <span className="text-[10px] text-slate-500">{normalizeAbilityRules(abilityDraft.rules).length} adicionadas</span>
+                    </div>
+
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <label>
+                        <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Gatilho</span>
+                        <select
+                          value={abilityDraft.rule_to_add?.trigger || ABILITY_TRIGGERS.ON_ATTACK}
+                          onChange={e => updateRuleDraft("trigger", e.target.value)}
+                          className="w-full min-w-0 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+                        >
+                          {Object.values(ABILITY_TRIGGERS).map(trigger => (
+                            <option key={trigger} value={trigger}>{ABILITY_TRIGGER_LABELS[trigger]}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Duracao da regra</span>
+                        <select
+                          value={abilityDraft.rule_to_add?.duration || DURATIONS.INSTANT}
+                          onChange={e => updateRuleDraft("duration", e.target.value)}
+                          className="w-full min-w-0 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+                        >
+                          {Object.values(DURATIONS).map(duration => (
+                            <option key={duration} value={duration}>{DURATION_LABELS[duration]}</option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+
+                    <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3 space-y-2">
+                      <div className="text-[10px] uppercase tracking-wider text-slate-500">Condicoes</div>
+                      <div className="flex flex-wrap items-end gap-2">
+                        <label className="min-w-[13rem] flex-[1_1_14rem]">
+                          <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Tipo</span>
+                          <select
+                            value={abilityDraft.rule_to_add?.condition_to_add?.type || ABILITY_CONDITION_TYPES.SOURCE_POSITION}
+                            onChange={e => updateRuleConditionDraft("type", e.target.value)}
+                            className="w-full min-w-0 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+                          >
+                            {Object.values(ABILITY_CONDITION_TYPES).map(type => (
+                              <option key={type} value={type}>{ABILITY_CONDITION_LABELS[type]}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="min-w-[13rem] flex-[2_1_18rem]">
+                          <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Valor</span>
+                          <input
+                            value={abilityDraft.rule_to_add?.condition_to_add?.value || ""}
+                            onChange={e => updateRuleConditionDraft("value", e.target.value)}
+                            placeholder="Ex: ACTIVE, BENCH ou Agente, Super"
+                            className="w-full min-w-0 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+                          />
+                        </label>
+                        <div className="flex basis-full justify-end">
+                          <button
+                            type="button"
+                            onClick={addRuleCondition}
+                            className="inline-flex h-10 items-center justify-center rounded-lg border border-cyan-500/40 bg-cyan-500/20 px-4 text-xs text-cyan-100 hover:bg-cyan-500/30"
+                          >
+                            <Plus size={13} />
+                          </button>
+                        </div>
+                      </div>
+                      {normalizeAbilityConditions(abilityDraft.rule_to_add?.conditions).length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {normalizeAbilityConditions(abilityDraft.rule_to_add.conditions).map((condition, idx) => (
+                            <button
+                              key={`${condition.type}-${idx}`}
+                              type="button"
+                              onClick={() => removeRuleCondition(idx)}
+                              className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-300 hover:border-rose-500/60 hover:text-rose-200"
+                            >
+                              {ABILITY_CONDITION_LABELS[condition.type]}: {Array.isArray(condition.value) ? condition.value.join(", ") : condition.value}
+                              <X size={11} />
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <EffectControls
+                      effect={abilityDraft.rule_to_add?.effect_to_add || BLANK_EFFECT}
+                      onChange={updateRuleEffectDraft}
+                      onAdd={addRuleEffect}
+                    />
+                    <EffectsList effects={abilityDraft.rule_to_add?.effects} onRemove={removeRuleEffect} />
+
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={addAbilityRule}
+                        className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-4 py-2 text-xs text-cyan-100 hover:bg-cyan-500/25"
+                      >
+                        <Plus size={13} /> Adicionar regra avancada
+                      </button>
+                    </div>
+
+                    {normalizeAbilityRules(abilityDraft.rules).length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {normalizeAbilityRules(abilityDraft.rules).map((rule, idx) => (
+                          <button
+                            key={`${rule.trigger}-${idx}`}
+                            type="button"
+                            onClick={() => removeAbilityRule(idx)}
+                            className="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-950/30 px-2 py-1 text-xs text-cyan-100 hover:border-rose-500/60 hover:text-rose-200"
+                          >
+                            {ruleSummary(rule)}
+                            <X size={11} />
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <textarea
                     data-testid="ability-description-input"
