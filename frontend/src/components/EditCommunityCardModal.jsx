@@ -22,6 +22,18 @@ import { toast } from "sonner";
 
 const BLANK_ABILITY = { name: "", description: "", damage: 0, energy_cost: 0, energy_costs: [] };
 const normalizeEvolutionNumber = value => value === "I" ? "II" : (typeof value === "string" ? value : "");
+const MAX_ADDITIONAL_INFO = 10;
+const normalizeAdditionalInfo = info => (
+  Array.isArray(info)
+    ? info
+        .slice(0, MAX_ADDITIONAL_INFO)
+        .map(item => ({
+          label: String(item?.label || "").trim(),
+          value: String(item?.value || "").trim(),
+        }))
+        .filter(item => item.label || item.value)
+    : []
+);
 const BLANK_EFFECT = {
   type: EFFECT_TYPES.DAMAGE,
   target: TARGETS.OPPONENT_ACTIVE,
@@ -311,6 +323,9 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
       energy_type: card.energy_type || "",
       image_url: card.image_url || "",
       description: card.description || "",
+      expansion: card.expansion || "",
+      universe: card.universe || "",
+      additional_info: normalizeAdditionalInfo(card.additional_info),
       public_status: card.public_status || "approved",
     });
   }, [card]);
@@ -327,6 +342,35 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
   }, []);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const updateAdditionalInfo = (index, field, value) => {
+    setForm(f => {
+      const list = [...(f.additional_info || [])];
+      list[index] = {
+        ...(list[index] || { label: "", value: "" }),
+        [field]: value,
+      };
+      return { ...f, additional_info: list };
+    });
+  };
+
+  const addAdditionalInfo = () => {
+    setForm(f => {
+      const list = f.additional_info || [];
+      if (list.length >= MAX_ADDITIONAL_INFO) {
+        toast.error("Maximo de 10 informacoes adicionais");
+        return f;
+      }
+      return { ...f, additional_info: [...list, { label: "", value: "" }] };
+    });
+  };
+
+  const removeAdditionalInfo = index => {
+    setForm(f => ({
+      ...f,
+      additional_info: (f.additional_info || []).filter((_, itemIndex) => itemIndex !== index),
+    }));
+  };
 
   const toggleNature = (nature) => {
     const list = form.natures.includes(nature)
@@ -509,6 +553,9 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
     try {
       const payload = {
         ...form,
+        expansion: String(form.expansion || "").trim(),
+        universe: String(form.universe || "").trim(),
+        additional_info: normalizeAdditionalInfo(form.additional_info),
         evolution_number: form.is_evolution ? (normalizeEvolutionNumber(form.evolution_number) || "II") : null,
         evolves_from_card_id: form.is_evolution ? (form.evolves_from_card_id || null) : null,
         evolves_from_name: form.is_evolution ? (form.evolves_from_name || null) : null,
@@ -575,6 +622,61 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
             <select value={form.rarity} onChange={e => set("rarity", parseInt(e.target.value))} className={inputCls}>
               {[1,2,3,4].map(r => <option key={r} value={r}>{r} ★</option>)}
             </select>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <label className={labelCls + " mb-0"}>Informacoes adicionais</label>
+            <span className="text-[10px] text-slate-500">{(form.additional_info || []).length}/{MAX_ADDITIONAL_INFO}</span>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelCls}>Expansao</label>
+              <input value={form.expansion || ""} onChange={e => set("expansion", e.target.value)} placeholder="Ex: A1" maxLength={40} className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Universo</label>
+              <input value={form.universe || ""} onChange={e => set("universe", e.target.value)} placeholder="Ex: Naruto" maxLength={60} className={inputCls} />
+            </div>
+          </div>
+          <div className="space-y-2">
+            {(form.additional_info || []).map((info, index) => (
+              <div key={index} className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)_auto]">
+                <input
+                  value={info.label || ""}
+                  onChange={e => updateAdditionalInfo(index, "label", e.target.value)}
+                  placeholder="Campo"
+                  maxLength={40}
+                  className={inputCls}
+                />
+                <input
+                  value={info.value || ""}
+                  onChange={e => updateAdditionalInfo(index, "value", e.target.value)}
+                  placeholder="Valor"
+                  maxLength={120}
+                  className={inputCls}
+                />
+                <button
+                  type="button"
+                  onClick={() => removeAdditionalInfo(index)}
+                  className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-2 text-rose-200 hover:bg-rose-500/20"
+                  aria-label="Remover informacao adicional"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={addAdditionalInfo}
+                disabled={(form.additional_info || []).length >= MAX_ADDITIONAL_INFO}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-500/40 bg-indigo-500/20 px-3 py-2 text-xs text-indigo-200 hover:bg-indigo-500/30 disabled:opacity-40"
+              >
+                <Plus size={13} /> Adicionar campo
+              </button>
+            </div>
           </div>
         </div>
 

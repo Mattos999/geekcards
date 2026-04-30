@@ -32,9 +32,23 @@ const BLANK = {
   name: "", card_type: "Personagem", natures: [], rarity: 0, is_alpha: false, is_evolution: false, evolution_number: "",
   evolves_from_card_id: "", evolves_from_name: "",
   hp: 100, recuo: 1, abilities: [], effects: [], passive_effects: [], speed: "", attach_to: "",
-  energy_type: null, image_url: null, description: "",
+  energy_type: null, image_url: null, description: "", expansion: "", universe: "", additional_info: [],
   public_status: "private"
 };
+
+const MAX_ADDITIONAL_INFO = 10;
+
+const normalizeAdditionalInfo = info => (
+  Array.isArray(info)
+    ? info
+        .slice(0, MAX_ADDITIONAL_INFO)
+        .map(item => ({
+          label: String(item?.label || "").trim(),
+          value: String(item?.value || "").trim(),
+        }))
+        .filter(item => item.label || item.value)
+    : []
+);
 
 const BLANK_EFFECT = {
   type: EFFECT_TYPES.DAMAGE,
@@ -416,6 +430,38 @@ export default function CardBuilderPage() {
 
   const set = (k, v) => setCard(c => ({ ...c, [k]: v }));
 
+  const updateAdditionalInfo = (index, field, value) => {
+    setCard(current => {
+      const list = [...(current.additional_info || [])];
+      list[index] = {
+        ...(list[index] || { label: "", value: "" }),
+        [field]: value,
+      };
+      return { ...current, additional_info: list };
+    });
+  };
+
+  const addAdditionalInfo = () => {
+    setCard(current => {
+      const list = current.additional_info || [];
+      if (list.length >= MAX_ADDITIONAL_INFO) {
+        toast.error("Maximo de 10 informacoes adicionais");
+        return current;
+      }
+      return {
+        ...current,
+        additional_info: [...list, { label: "", value: "" }],
+      };
+    });
+  };
+
+  const removeAdditionalInfo = index => {
+    setCard(current => ({
+      ...current,
+      additional_info: (current.additional_info || []).filter((_, itemIndex) => itemIndex !== index),
+    }));
+  };
+
   const validEvolutionTargets = useMemo(() => {
     const previousStage = getEvolutionStage(card) - 1;
     return evolutionOptions.filter(option =>
@@ -759,6 +805,9 @@ export default function CardBuilderPage() {
     setLoading(true);
     try {
       const payload = { ...card };
+      payload.expansion = String(payload.expansion || "").trim();
+      payload.universe = String(payload.universe || "").trim();
+      payload.additional_info = normalizeAdditionalInfo(payload.additional_info);
       if (payload.card_type !== "Energia") payload.energy_type = null;
       payload.effects = normalizeEffects(payload.effects);
       payload.passive_effects = normalizeEquipmentPassiveEffects(payload.passive_effects);
@@ -931,6 +980,89 @@ export default function CardBuilderPage() {
                   </select>
                 </div>
               )}
+            </div>
+          </section>
+
+          <section className="glass rounded-xl p-6">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm uppercase tracking-widest text-slate-400">Informacoes adicionais</h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  Expansao e universo aparecem no card. Campos extras ficam salvos nos dados da carta.
+                </p>
+              </div>
+              <span className="text-[10px] uppercase tracking-wider text-slate-500">
+                {(card.additional_info || []).length}/{MAX_ADDITIONAL_INFO}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label className="block text-xs text-slate-400 mb-1.5">Expansao</label>
+                <input
+                  value={card.expansion || ""}
+                  onChange={e => set("expansion", e.target.value)}
+                  placeholder="Ex: A1"
+                  maxLength={40}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 focus:border-indigo-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1.5">Universo</label>
+                <input
+                  value={card.universe || ""}
+                  onChange={e => set("universe", e.target.value)}
+                  placeholder="Ex: Naruto"
+                  maxLength={60}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 focus:border-indigo-500 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {(card.additional_info || []).map((info, index) => (
+                <div key={index} className="grid grid-cols-1 gap-2 rounded-lg border border-slate-800 bg-slate-950/45 p-3 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)_auto]">
+                  <label>
+                    <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Campo</span>
+                    <input
+                      value={info.label || ""}
+                      onChange={e => updateAdditionalInfo(index, "label", e.target.value)}
+                      placeholder="Ex: Saga"
+                      maxLength={40}
+                      className="w-full min-w-0 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+                    />
+                  </label>
+                  <label>
+                    <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Valor</span>
+                    <input
+                      value={info.value || ""}
+                      onChange={e => updateAdditionalInfo(index, "value", e.target.value)}
+                      placeholder="Ex: Chunin"
+                      maxLength={120}
+                      className="w-full min-w-0 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => removeAdditionalInfo(index)}
+                    className="self-end rounded-lg border border-rose-500/30 bg-rose-500/10 p-2 text-rose-200 hover:bg-rose-500/20"
+                    aria-label="Remover informacao adicional"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={addAdditionalInfo}
+                  disabled={(card.additional_info || []).length >= MAX_ADDITIONAL_INFO}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-500/40 bg-indigo-500/20 px-3 py-2 text-xs text-indigo-200 hover:bg-indigo-500/30 disabled:opacity-40"
+                >
+                  <Plus size={13} /> Adicionar campo
+                </button>
+              </div>
             </div>
           </section>
 

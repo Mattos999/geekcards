@@ -85,6 +85,11 @@ class Ability(BaseModel):
     rules: List[AbilityRule] = []
 
 
+class AdditionalInfoField(BaseModel):
+    label: str = ""
+    value: str = ""
+
+
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
@@ -134,6 +139,9 @@ class CardCreate(BaseModel):
     energy_type: Optional[str] = None  # for Energia cards
     image_url: Optional[str] = None
     description: str = ""
+    expansion: str = ""
+    universe: str = ""
+    additional_info: List[AdditionalInfoField] = []
     public_status: str = "private"  # private | pending | approved | rejected
     is_evolution: bool = False
     evolution_number: Optional[str] = None
@@ -190,6 +198,17 @@ class LegacyCommunityMigrationResult(BaseModel):
 
 def normalize_card_payload(body: CardCreate) -> dict:
     payload = body.model_dump()
+
+    payload["expansion"] = str(payload.get("expansion") or "").strip()
+    payload["universe"] = str(payload.get("universe") or "").strip()
+    payload["additional_info"] = [
+        {
+            "label": str(info.get("label") or "").strip()[:40],
+            "value": str(info.get("value") or "").strip()[:120],
+        }
+        for info in (payload.get("additional_info") or [])[:10]
+        if str(info.get("label") or "").strip() or str(info.get("value") or "").strip()
+    ]
 
     if not payload.get("is_evolution"):
         payload["evolution_number"] = None

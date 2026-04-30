@@ -203,23 +203,29 @@ else {
         <div className="absolute inset-0 pointer-events-none alpha-foil" />
       )}
 
-      {/* RARITY STARS */}
-      <div className="absolute top-2 right-2 flex gap-0.5">
+      {/* RARITY + EXPANSION */}
+      <div className="absolute top-2 right-2 flex max-w-[70%] items-center justify-end gap-1">
 
-        {card.rarity > 0 &&
+        {card.expansion && (
+          <span className="rounded-md border border-white/20 bg-black/55 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-white shadow">
+            {card.expansion}
+          </span>
+        )}
 
-          Array.from({ length: card.rarity }).map((_, i) => (
+        {card.rarity > 0 && (
+          <span className="flex gap-0.5">
+            {Array.from({ length: card.rarity }).map((_, i) => (
 
-            <Star
-              key={i}
-              size={12}
-              fill={rarityColor}
-              color={rarityColor}
-            />
+              <Star
+                key={i}
+                size={12}
+                fill={rarityColor}
+                color={rarityColor}
+              />
 
-          ))
-
-        }
+            ))}
+          </span>
+        )}
 
       </div>
 
@@ -293,6 +299,12 @@ else {
           style={{ fontFamily: "Outfit" }}
         >
           <span className="truncate min-w-0">{card.name}</span>
+
+          {card.universe && (
+            <span className="max-w-[5.5rem] shrink truncate text-[10px] font-semibold text-slate-300/90">
+              ({card.universe})
+            </span>
+          )}
 
           {card.is_evolution && card.evolution_number && (
             <span className="flex items-center gap-1 text-cyan-400 text-xs font-semibold shrink-0">

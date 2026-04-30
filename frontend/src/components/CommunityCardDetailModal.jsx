@@ -201,6 +201,12 @@ export function CommunityCardDetailModal({ card, onClose }) {
           <Section title="Informacoes">
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <InfoTile icon={Layers} label="Tipo" value={card.card_type} tone="indigo" />
+              {card.expansion && (
+                <InfoTile icon={Star} label="Expansao" value={card.expansion} tone="amber" />
+              )}
+              {card.universe && (
+                <InfoTile icon={Sparkles} label="Universo" value={card.universe} tone="indigo" />
+              )}
               {card.card_type === "Personagem" && (
                 <>
                   <InfoTile icon={Heart} label="HP" value={card.hp ?? 0} tone="rose" />
@@ -212,6 +218,22 @@ export function CommunityCardDetailModal({ card, onClose }) {
               )}
             </div>
           </Section>
+
+          {Array.isArray(card.additional_info) && card.additional_info.length > 0 && (
+            <Section title="Informacoes adicionais">
+              <div className="grid gap-2 sm:grid-cols-2">
+                {card.additional_info
+                  .filter(info => info?.label || info?.value)
+                  .slice(0, 10)
+                  .map((info, index) => (
+                    <div key={`${info.label}-${index}`} className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+                      <div className="text-[10px] uppercase tracking-wider text-slate-500">{info.label || `Campo ${index + 1}`}</div>
+                      <div className="mt-1 text-sm text-slate-200">{info.value || "-"}</div>
+                    </div>
+                  ))}
+              </div>
+            </Section>
+          )}
 
           {card.natures?.length > 0 && (
             <Section title="Naturezas">
