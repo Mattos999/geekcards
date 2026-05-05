@@ -28,7 +28,7 @@ import {
   setupBenchToHand,
   setupToBench,
 } from "../lib/duelEngine";
-import { Archive, BookOpen, Bot, ChevronRight, Loader2, Play, RotateCcw, Shield, Sparkles, Sword } from "lucide-react";
+import { Archive, BookOpen, Bot, ChevronRight, Loader2, Play, RotateCcw, Shield, Sparkles, Sword, X } from "lucide-react";
 import { toast } from "sonner";
 
 const ENERGY_SYMBOL_CLASSES = {
@@ -194,13 +194,17 @@ const EnergyZone = ({ current, next, remaining, canDrag, onDragStart }) => (
   </div>
 );
 
-const HudScoreBox = ({ tone = "player", points = 0, discardCount = 0 }) => (
+const HudScoreBox = ({ tone = "player", points = 0, discardCount = 0, onOpenDiscard }) => (
   <div className={`flex min-h-20 items-center gap-2 rounded-lg border p-2 ${tone === "opponent" ? "border-rose-400/25 bg-rose-950/15" : "border-indigo-400/25 bg-indigo-950/15"}`}>
-    <div className="flex flex-1 items-center justify-center gap-1 rounded-md border border-slate-700 bg-slate-950/55 px-2 py-2 text-[10px] text-slate-300">
+    <button
+      type="button"
+      onClick={onOpenDiscard}
+      className="flex flex-1 items-center justify-center gap-1 rounded-md border border-slate-700 bg-slate-950/55 px-2 py-2 text-[10px] text-slate-300 hover:border-indigo-400/50 hover:text-slate-100"
+    >
       <Archive size={13} />
       <span>Cemiterio</span>
       <span className="font-mono text-slate-100">{discardCount}</span>
-    </div>
+    </button>
     <div className="min-w-16 text-center">
       <div className={`text-[9px] font-bold uppercase tracking-wider ${tone === "opponent" ? "text-rose-200/60" : "text-indigo-200/60"}`}>Pontos</div>
       <div className={`font-mono text-base font-black ${tone === "opponent" ? "text-rose-100" : "text-indigo-100"}`}>{points}/{DUEL_RULES.POINTS_TO_WIN}</div>
@@ -208,7 +212,7 @@ const HudScoreBox = ({ tone = "player", points = 0, discardCount = 0 }) => (
   </div>
 );
 
-const DuelMomentPanel = ({ state, player, opponent, canEndTurn, onEndTurn }) => {
+const DuelMomentPanel = ({ state, player, opponent, canEndTurn, onEndTurn, onOpenDiscard }) => {
   const flow = [TURN_MOMENTS.TURN_START, TURN_MOMENTS.DRAW, TURN_MOMENTS.ACTION, TURN_MOMENTS.ATTACK, TURN_MOMENTS.TURN_END];
   const events = new Set(state.turn_events || []);
   const moment = state.winner ? "WINNER" : state.turn_moment || TURN_MOMENTS.ACTION;
@@ -224,7 +228,7 @@ const DuelMomentPanel = ({ state, player, opponent, canEndTurn, onEndTurn }) => 
 
   return (
     <div className="mx-auto grid w-full max-w-5xl grid-cols-1 gap-2 lg:grid-cols-[13rem_minmax(26rem,1fr)_13rem]">
-      <HudScoreBox tone="opponent" points={opponent.points} discardCount={opponent.discard.length} />
+      <HudScoreBox tone="opponent" points={opponent.points} discardCount={opponent.discard.length} onOpenDiscard={() => onOpenDiscard?.("opponent")} />
       <div className="rounded-lg border border-slate-700/80 bg-slate-950/80 px-3 py-2 shadow-lg shadow-black/20">
         <div className="text-[10px] uppercase tracking-[0.22em] text-slate-500">Momento do jogo</div>
         <div className="mt-0.5 flex flex-wrap items-center gap-2">
@@ -253,10 +257,49 @@ const DuelMomentPanel = ({ state, player, opponent, canEndTurn, onEndTurn }) => 
           </button>
         </div>
       </div>
-      <HudScoreBox tone="player" points={player.points} discardCount={player.discard.length} />
+      <HudScoreBox tone="player" points={player.points} discardCount={player.discard.length} onOpenDiscard={() => onOpenDiscard?.("player")} />
     </div>
   );
 };
+
+const CemeteryModal = ({ title, cards = [], onClose, onCardClick }) => (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+    <div className="max-h-[84vh] w-full max-w-4xl overflow-hidden rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl shadow-black/60">
+      <div className="flex items-center justify-between border-b border-slate-800 p-4">
+        <div className="flex items-center gap-2">
+          <Archive size={16} className="text-indigo-300" />
+          <div>
+            <h3 className="text-sm font-black text-slate-100">{title}</h3>
+            <p className="text-xs text-slate-500">{cards.length} carta(s)</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-lg border border-slate-700 bg-slate-900 p-2 text-slate-300 hover:text-white"
+          aria-label="Fechar cemiterio"
+        >
+          <X size={16} />
+        </button>
+      </div>
+      <div className="max-h-[68vh] overflow-y-auto p-4">
+        {cards.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-800 bg-slate-950/50 p-10 text-center text-sm text-slate-500">
+            Cemiterio vazio
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+            {cards.map((card, index) => (
+              <div key={cardId(card, index)} className="flex justify-center">
+                <CardThumb card={card} compact onClick={() => onCardClick?.(card)} />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
+);
 
 const SetupPanel = ({ title, player, side, onAction, onCardClick, disabled = false }) => (
   <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-4">
@@ -403,6 +446,7 @@ export default function DuelPage() {
   const [onlineLoading, setOnlineLoading] = useState(false);
   const [retreatChoosing, setRetreatChoosing] = useState(false);
   const [detailCard, setDetailCard] = useState(null);
+  const [cemeterySide, setCemeterySide] = useState(null);
   const onlineDuelId = onlineDuel?.id;
 
   useEffect(() => {
@@ -992,6 +1036,7 @@ export default function DuelPage() {
                 opponent={opponent}
                 canEndTurn={canPlayerAct}
                 onEndTurn={() => applyDuelAction(endTurn, { kind: "end_turn" })}
+                onOpenDiscard={setCemeterySide}
               />
 
               <section className="rounded-2xl border border-indigo-400/35 bg-slate-950/35 p-4 shadow-xl shadow-indigo-500/10">
@@ -1184,6 +1229,14 @@ export default function DuelPage() {
             </div>
           </div>
         </div>
+      )}
+      {cemeterySide && duel && (
+        <CemeteryModal
+          title={cemeterySide === "player" ? "Seu cemiterio" : "Cemiterio do oponente"}
+          cards={duel.players[cemeterySide]?.discard || []}
+          onClose={() => setCemeterySide(null)}
+          onCardClick={setDetailCard}
+        />
       )}
       {detailCard && <CommunityCardDetailModal card={detailCard} onClose={() => setDetailCard(null)} />}
     </div>
