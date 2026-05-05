@@ -37,8 +37,8 @@ const shuffle = cards => {
 };
 
 const normalizeEnergyTypes = energyTypes => {
-  const valid = (energyTypes || []).filter(type => ENERGY_TYPES.includes(type));
-  return valid.length ? valid : ["Universal"];
+  const valid = (energyTypes || []).filter(type => type !== GENERIC_ENERGY_TYPE && ENERGY_TYPES.includes(type));
+  return valid.length ? valid : ["Superior", "Natural", "Interior"];
 };
 
 const randomEnergy = energyTypes => {
@@ -1663,7 +1663,11 @@ export function resolveEffects(state, side, sourceCard, effects, context = {}) {
           next = withLog(next, `${target.name} nao recebeu energia na moeda.`);
           return;
         }
-        const energyType = effect.energy_type || next.players[side].energy_zone?.current || "Universal";
+        const energyType = (
+          effect.energy_type && effect.energy_type !== GENERIC_ENERGY_TYPE
+            ? effect.energy_type
+            : next.players[side].energy_zone?.current || randomEnergy(next.players[side].energy_types)
+        );
         next = updateCardRef(next, ref, card => ({
           ...card,
           attached_energy: [
@@ -1785,8 +1789,12 @@ export function finishSetup(state) {
     ...state,
     phase: "battle",
     turn: "player",
-    turn_moment: TURN_MOMENTS.TURN_START,
-    turn_events: [TURN_MOMENTS.TURN_START],
+    turn_moment: TURN_MOMENTS.ACTION,
+    turn_events: [TURN_MOMENTS.TURN_START, TURN_MOMENTS.ACTION],
+    players: {
+      ...state.players,
+      player: { ...state.players.player, drew_this_turn: true },
+    },
   }, "Duelo iniciado.");
 }
 
@@ -2065,7 +2073,9 @@ export function runBotTurn(state, context = {}) {
   if (!next.players.opponent.active && next.players.opponent.bench.length > 0) {
     next = promoteFromBench(next, "opponent", 0);
   }
-  next = drawTurnCard(next, "opponent");
+  if (!next.players.opponent.drew_this_turn) {
+    next = drawTurnCard(next, "opponent");
+  }
   const bot = next.players.opponent;
 
   const benchIndex = bot.hand.findIndex(isBasicCharacter);

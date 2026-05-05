@@ -1137,8 +1137,8 @@ def _is_basic_character(card: Optional[dict]) -> bool:
 
 
 def _normalize_energy_types(energy_types: list[str]) -> list[str]:
-    valid = [energy for energy in energy_types or [] if energy in ENERGY_TYPES]
-    return valid or ["Universal"]
+    valid = [energy for energy in energy_types or [] if energy != "Universal" and energy in ENERGY_TYPES]
+    return valid or ["Superior", "Natural", "Interior"]
 
 
 def _random_energy(energy_types: list[str]) -> str:
@@ -1824,7 +1824,11 @@ def _resolve_online_effects(state: dict, side: str, source_card: Optional[dict],
             elif effect_type in ONLINE_ADD_ENERGY_EFFECTS:
                 if effect_type == "ADD_ENERGY_BY_COIN" and random.random() < 0.5:
                     continue
-                energy_type = effect.get("energy_type") or next_state["players"][side].get("energy_zone", {}).get("current") or "Universal"
+                energy_type = (
+                    effect.get("energy_type")
+                    if effect.get("energy_type") and effect.get("energy_type") != "Universal"
+                    else next_state["players"][side].get("energy_zone", {}).get("current") or _random_energy(next_state["players"][side].get("energy_types", []))
+                )
                 target["attached_energy"] = [*(target.get("attached_energy") or []), *[energy_type for _ in range(amount or 1)]]
                 next_state = _online_set_ref_card(next_state, ref, target)
                 next_state = _with_duel_log(next_state, f"{target.get('name')} recebeu {amount or 1} energia(s).")
@@ -2186,7 +2190,7 @@ def _apply_online_action(state: dict, side: str, action: OnlineDuelAction) -> di
         target = _target_card(player, action.zone or "active", action.target_index)
         if not target or player.get("energy_remaining", 0) <= 0:
             return state
-        target["attached_energy"] = [*(target.get("attached_energy") or []), player.get("energy_zone", {}).get("current", "Universal")]
+        target["attached_energy"] = [*(target.get("attached_energy") or []), player.get("energy_zone", {}).get("current") or _random_energy(player.get("energy_types", []))]
         player = _set_target_card(player, action.zone or "active", action.target_index, target)
         player["energy_remaining"] = player.get("energy_remaining", 0) - 1
         next_state["players"][side] = player
@@ -2421,8 +2425,9 @@ async def online_duel_setup_ready(duel_id: str, body: OnlineDuelSetupReady, requ
     state["players"][side]["setup_ready"] = body.ready
     if all(state["players"][s].get("active") and state["players"][s].get("setup_ready") for s in ["p1", "p2"]):
         state["phase"] = "battle"
-        state["turn_moment"] = "TURN_START"
-        state["turn_events"] = ["TURN_START"]
+        state["turn_moment"] = "ACTION"
+        state["turn_events"] = ["TURN_START", "ACTION"]
+        state["players"]["p1"]["drew_this_turn"] = True
         state = _with_duel_log(state, "Duelo iniciado.")
         status = "battle"
     else:
