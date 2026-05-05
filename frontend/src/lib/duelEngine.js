@@ -16,6 +16,15 @@ const BENCH_LIMIT = 3;
 const ENERGY_PER_TURN = 1;
 const POINTS_TO_WIN = 3;
 
+export const TURN_MOMENTS = {
+  SETUP: "SETUP",
+  TURN_START: "TURN_START",
+  DRAW: "DRAW",
+  ACTION: "ACTION",
+  ATTACK: "ATTACK",
+  TURN_END: "TURN_END",
+};
+
 const clone = value => JSON.parse(JSON.stringify(value));
 
 const shuffle = cards => {
@@ -96,15 +105,7 @@ const knockoutPoints = card => {
 };
 
 const abilityCosts = ability => sanitizeEnergyCosts(normalizeAbilityEnergyCosts(ability));
-
-const attachedCounts = card => {
-  const counts = {};
-  ENERGY_TYPES.forEach(type => { counts[type] = 0; });
-  (card?.attached_energy || []).forEach(type => {
-    counts[type] = (counts[type] || 0) + 1;
-  });
-  return counts;
-};
+const GENERIC_ENERGY_TYPE = "Universal";
 
 const adjustedAbilityCosts = (card, ability) => {
   let reduction = Math.max(0, parseInt(card?.energy_cost_reduction, 10) || 0);
@@ -118,11 +119,27 @@ const adjustedAbilityCosts = (card, ability) => {
 const canPayAbility = (card, ability) => {
   const costs = adjustedAbilityCosts(card, ability);
   if ((card?.attached_energy || []).length === 0 && costs.length === 0) return true;
+  const attached = card?.attached_energy || [];
   if (card?.energy_any_type) {
-    return (card.attached_energy || []).length >= costs.reduce((total, cost) => total + cost.amount, 0);
+    return attached.length >= costs.reduce((total, cost) => total + cost.amount, 0);
   }
-  const counts = attachedCounts(card);
-  return costs.every(cost => (counts[cost.energy_type] || 0) >= cost.amount);
+
+  const remaining = [...attached];
+  const genericCost = costs
+    .filter(cost => cost.energy_type === GENERIC_ENERGY_TYPE)
+    .reduce((total, cost) => total + cost.amount, 0);
+  const specificCosts = costs.filter(cost => cost.energy_type !== GENERIC_ENERGY_TYPE);
+
+  for (const cost of specificCosts) {
+    for (let paid = 0; paid < cost.amount; paid += 1) {
+      let index = remaining.findIndex(energy => energy === cost.energy_type);
+      if (index < 0) index = remaining.findIndex(energy => energy === GENERIC_ENERGY_TYPE);
+      if (index < 0) return false;
+      remaining.splice(index, 1);
+    }
+  }
+
+  return remaining.length >= genericCost;
 };
 
 const abilityEffects = ability => {
@@ -159,6 +176,8 @@ const DAMAGE_EFFECTS = new Set([
   EFFECT_TYPES.DAMAGE_CONSECUTIVE_STACK,
   EFFECT_TYPES.DAMAGE_SPLIT,
   EFFECT_TYPES.DAMAGE_TO_PREVIOUSLY_DAMAGED_BENCH,
+  EFFECT_TYPES.COUNTER_DAMAGE,
+  EFFECT_TYPES.INSTANT_KNOCKOUT_IF_DAMAGE_TYPE,
 ]);
 
 const HEAL_EFFECTS = new Set([
@@ -231,6 +250,7 @@ const HAND_DECK_EFFECTS = new Set([
   EFFECT_TYPES.RESURRECT_TO_DECK,
   EFFECT_TYPES.RESURRECT_FROM_DISCARD,
   EFFECT_TYPES.DISCARD_CARD,
+  EFFECT_TYPES.SEARCH_CARD_BY_FILTER,
 ]);
 
 const STATUS_EFFECTS = new Set([
@@ -243,6 +263,9 @@ const STATUS_EFFECTS = new Set([
   EFFECT_TYPES.BLOCK_RETREAT,
   EFFECT_TYPES.SKIP_NEXT_ATTACK,
   EFFECT_TYPES.CANNOT_USE_SAME_ATTACK_NEXT_TURN,
+  EFFECT_TYPES.POISON,
+  EFFECT_TYPES.DAMAGE_OVER_TIME,
+  EFFECT_TYPES.STATUS_ON_ATTACKER,
 ]);
 
 const BUFF_EFFECTS = new Set([
@@ -274,6 +297,9 @@ const IMMUNITY_EFFECTS = new Set([
   EFFECT_TYPES.REFLECT_DOUBLE_DAMAGE,
   EFFECT_TYPES.REDIRECT_DAMAGE,
   EFFECT_TYPES.SHARE_DAMAGE,
+  EFFECT_TYPES.INSTANT_KNOCKOUT_IF_DAMAGE_TYPE,
+  EFFECT_TYPES.PREVENT_POINT_GAIN,
+  EFFECT_TYPES.CANCEL_KNOCKOUT_POINT,
 ]);
 
 const CONDITION_EFFECTS = new Set([
@@ -295,6 +321,7 @@ const CONDITION_EFFECTS = new Set([
   EFFECT_TYPES.ON_KNOCKOUT,
   EFFECT_TYPES.ON_TURN_START,
   EFFECT_TYPES.ON_TURN_END,
+  EFFECT_TYPES.TAKE_DAMAGE_INSTEAD,
 ]);
 
 const SPECIAL_EFFECTS = new Set([
@@ -303,6 +330,7 @@ const SPECIAL_EFFECTS = new Set([
   EFFECT_TYPES.ABSORB_OWN_BENCH_CARD,
   EFFECT_TYPES.CREATE_TEMPORARY_UNIT,
   EFFECT_TYPES.PLAY_ITEM_AS_UNIT,
+  EFFECT_TYPES.DISCARD_EQUIPMENT_AFTER_TRIGGER,
 ]);
 
 const ONE_TURN_STATUSES = new Set([
@@ -350,6 +378,8 @@ const makePlayer = (name, cards, turnNumber, energyTypes = ["Universal"]) => {
       next: randomEnergy(availableEnergy),
     },
     energy_remaining: ENERGY_PER_TURN,
+    master_used_this_turn: false,
+    drew_this_turn: false,
   };
 
   return draw(player, INITIAL_HAND_SIZE);
@@ -363,6 +393,8 @@ export function createDuel(playerCards, opponentCards, playerEnergyTypes = ["Uni
     phase: "setup",
     turn: "setup",
     turn_number: turnNumber,
+    turn_moment: TURN_MOMENTS.SETUP,
+    turn_events: [],
     winner: null,
     log: ["Escolha as cartas iniciais."],
     players: {
@@ -420,19 +452,11 @@ const removeTargetCard = (player, zone, index = 0) => {
   if (zone === "active") {
     const removed = next.active;
     next.active = null;
-    return { player: promoteIfNeeded(next), removed };
+    return { player: next, removed };
   }
   const removed = next.bench[index] || null;
   if (removed) next.bench.splice(index, 1);
   return { player: next, removed };
-};
-
-const promoteIfNeeded = player => {
-  const next = clone(player);
-  if (!next.active && next.bench.length > 0) {
-    next.active = next.bench.shift();
-  }
-  return next;
 };
 
 const checkWinner = state => {
@@ -483,13 +507,16 @@ const handOwnerForEffect = (side, effect) => (
   String(effect.target || "").startsWith("OPPONENT") ? opponentOf(side) : side
 );
 
-const targetRefsForEffect = (state, side, effect) => {
+const targetRefsForEffect = (state, side, effect, context = {}) => {
   const opponentSide = opponentOf(side);
   const player = state.players[side];
   const opponent = state.players[opponentSide];
   const ownBenchRefs = player.bench.map((card, index) => card ? { side, zone: "bench", index } : null).filter(Boolean);
   const opponentBenchRefs = opponent.bench.map((card, index) => card ? { side: opponentSide, zone: "bench", index } : null).filter(Boolean);
   const randomOne = refs => refs.length ? [refs[Math.floor(Math.random() * refs.length)]] : [];
+  const randomMany = (refs, count) => shuffleList(refs).slice(0, Math.max(1, count || 1));
+  const damageSourceRef = effect.damage_source_ref || context.damageSourceRef || context.sourceRef || null;
+  const damageTargetRef = effect.damage_target_ref || context.damageTargetRef || context.targetRef || null;
 
   if (effect.target_override) return [effect.target_override];
   if (effect.type === EFFECT_TYPES.HEAL_EQUIPPED_CARD && effect.equipped_card_ref) {
@@ -498,11 +525,11 @@ const targetRefsForEffect = (state, side, effect) => {
   if (effect.target === TARGETS.EQUIPPED_CARD && effect.equipped_card_ref) {
     return [effect.equipped_card_ref];
   }
-  if (effect.target === TARGETS.DAMAGE_SOURCE && effect.damage_source_ref) {
-    return [effect.damage_source_ref];
+  if (effect.target === TARGETS.DAMAGE_SOURCE && damageSourceRef) {
+    return [damageSourceRef];
   }
-  if (effect.target === TARGETS.DAMAGE_TARGET && effect.damage_target_ref) {
-    return [effect.damage_target_ref];
+  if (effect.target === TARGETS.DAMAGE_TARGET && damageTargetRef) {
+    return [damageTargetRef];
   }
   if ([TARGETS.EQUIPPED_CARD, TARGETS.DAMAGE_SOURCE, TARGETS.DAMAGE_TARGET].includes(effect.target)) {
     return [];
@@ -527,10 +554,10 @@ const targetRefsForEffect = (state, side, effect) => {
     });
   }
   if (effect.type === EFFECT_TYPES.DAMAGE_RANDOM_TARGETS) {
-    return randomOne([
+    return randomMany([
       ...(opponent.active ? [{ side: opponentSide, zone: "active", index: 0 }] : []),
       ...opponentBenchRefs,
-    ]);
+    ], effect.random_targets_count || effect.count || effect.hits || 1);
   }
   if (effect.type === EFFECT_TYPES.HEAL_SELF || effect.type === EFFECT_TYPES.HEAL_ACTIVE) {
     return player.active ? [{ side, zone: "active", index: 0 }] : [];
@@ -653,6 +680,21 @@ const valuesInclude = (value, item) => {
   return list.includes(item);
 };
 
+const cardTags = card => [
+  ...(card?.tags || []),
+  ...(card?.meta?.tags || []),
+].map(tag => String(tag).toUpperCase());
+
+const metaValueMatches = (card, value) => {
+  const key = value?.key || value?.meta_key;
+  const expected = Array.isArray(value?.values) ? value.values : String(value?.values || value?.value || "").split(",");
+  const normalizedExpected = expected.map(item => String(item).trim().toUpperCase()).filter(Boolean);
+  if (!key || normalizedExpected.length === 0) return false;
+  const current = card?.meta?.[key];
+  const values = Array.isArray(current) ? current : [current];
+  return values.map(item => String(item).trim().toUpperCase()).some(item => normalizedExpected.includes(item));
+};
+
 const ruleCardRefsForSide = (state, side) => [
   ...(state.players[side].active ? [{ side, zone: "active", index: 0 }] : []),
   ...state.players[side].bench.map((card, index) => card ? { side, zone: "bench", index } : null).filter(Boolean),
@@ -671,12 +713,36 @@ const checkAbilityCondition = (state, condition, context) => {
       return String(condition.value || "ACTIVE").toUpperCase() === sourcePosition(targetRef);
     case "TARGET_NATURE_IN":
       return (target?.natures || []).some(nature => valuesInclude(condition.value, nature));
+    case "SOURCE_NATURE_IN":
+      return (source?.natures || []).some(nature => valuesInclude(condition.value, nature));
+    case "TARGET_CARD_TYPE_IN":
+      return valuesInclude(condition.value, target?.card_type);
+    case "SOURCE_CARD_TYPE_IN":
+      return valuesInclude(condition.value, source?.card_type);
     case "TARGET_IS_DAMAGED":
       return target && (target.hp_remaining || 0) < (target.hp || 0);
     case "SELF_HAS_ENERGY_TYPE":
       return (source?.attached_energy || []).some(type => valuesInclude(condition.value, type));
     case "SELF_ENERGY_COUNT_GTE":
       return (source?.attached_energy || []).length >= (parseInt(condition.value, 10) || 0);
+    case "TARGET_ENERGY_COUNT_GTE":
+      return (target?.attached_energy || []).length >= (parseInt(condition.value, 10) || 0);
+    case "BENCH_HAS_CARD_NAME":
+      return state.players[sourceRef?.side || context.side || "player"]?.bench?.some(card => card?.name === condition.value);
+    case "BENCH_HAS_NATURE":
+      return state.players[sourceRef?.side || context.side || "player"]?.bench?.some(card => (card?.natures || []).some(nature => valuesInclude(condition.value, nature)));
+    case "HAS_EQUIPMENT":
+      return (source?.equipments || []).length > 0 || (target?.equipments || []).length > 0;
+    case "DAMAGE_AMOUNT_GTE":
+      return (parseInt(context.damageAmount, 10) || 0) >= (parseInt(condition.value, 10) || 0);
+    case "WOULD_BE_KNOCKED_OUT":
+      return Boolean(context.wouldBeKnockedOut || (target && (target.hp_remaining || 0) <= (parseInt(context.damageAmount, 10) || 0)));
+    case "ONCE_PER_TURN":
+      return !source?.last_rule_turn || source.last_rule_turn !== state.turn_number;
+    case "SOURCE_META_VALUE_IN":
+      return metaValueMatches(source, condition.value);
+    case "TARGET_META_VALUE_IN":
+      return metaValueMatches(target, condition.value);
     default:
       return false;
   }
@@ -733,22 +799,31 @@ const damageReactionOptions = (state, defendingSide, damageTargetRef, damageSour
   ruleCardRefsForSide(state, defendingSide).flatMap(sourceRef => {
     const source = targetCard(state.players[sourceRef.side], sourceRef.zone, sourceRef.index);
     if (!source) return [];
+    const damageTarget = targetCard(state.players[damageTargetRef.side], damageTargetRef.zone, damageTargetRef.index);
+    const wouldBeKnockedOut = Boolean(damageTarget && (damageTarget.hp_remaining || 0) <= damageAmount);
+    const triggers = [
+      ABILITY_TRIGGERS.BEFORE_DAMAGE_TAKEN,
+      ABILITY_TRIGGERS.BEFORE_DAMAGE_APPLIED,
+      damageTargetRef.zone === "active" ? ABILITY_TRIGGERS.BEFORE_ALLY_ACTIVE_TAKES_DAMAGE : null,
+      wouldBeKnockedOut ? ABILITY_TRIGGERS.ALLY_ACTIVE_WOULD_BE_KNOCKED_OUT : null,
+    ].filter(Boolean);
 
     return (source.abilities || []).flatMap((ability, abilityIndex) => {
       if (!canPayAbility(source, ability)) return [];
 
       return normalizeAbilityRules(ability.rules)
         .map((rule, ruleIndex) => ({ rule, ruleIndex }))
-        .filter(({ rule }) => rule.trigger === ABILITY_TRIGGERS.BEFORE_DAMAGE_TAKEN)
+        .filter(({ rule }) => triggers.includes(rule.trigger))
         .filter(({ rule }) => rule.conditions.every(condition => checkAbilityCondition(state, condition, {
           ...context,
-          trigger: ABILITY_TRIGGERS.BEFORE_DAMAGE_TAKEN,
+          trigger: rule.trigger,
           sourceRef,
           sourceCard: source,
           damageSourceRef,
           damageTargetRef,
           targetRef: damageTargetRef,
           damageAmount,
+          wouldBeKnockedOut,
         })))
         .map(({ rule, ruleIndex }) => ({
           side: defendingSide,
@@ -758,9 +833,23 @@ const damageReactionOptions = (state, defendingSide, damageTargetRef, damageSour
           abilityIndex,
           rule,
           ruleIndex,
-        }));
+          reactionKey: damageReactionKey(sourceRef, abilityIndex, ruleIndex),
+        }))
+        .filter(option => !context.usedDamageReactionKeys?.has(option.reactionKey))
+        .filter(option => {
+          const takesDamageInstead = normalizeEffects(option.rule.effects)
+            .some(effect => effect.type === EFFECT_TYPES.TAKE_DAMAGE_INSTEAD);
+          const sameTarget = option.sourceRef.side === damageTargetRef.side &&
+            option.sourceRef.zone === damageTargetRef.zone &&
+            option.sourceRef.index === damageTargetRef.index;
+          return !(takesDamageInstead && sameTarget);
+        });
     });
   })
+);
+
+const damageReactionKey = (sourceRef, abilityIndex, ruleIndex) => (
+  `${sourceRef.side}:${sourceRef.zone}:${sourceRef.index}:${abilityIndex}:${ruleIndex}`
 );
 
 const applyDamageReaction = (state, options, details, chooseDamageReaction) => {
@@ -778,6 +867,12 @@ const applyDamageReaction = (state, options, details, chooseDamageReaction) => {
   }
 
   const selected = options[choiceIndex];
+  if (details.context) {
+    if (!details.context.usedDamageReactionKeys) {
+      details.context.usedDamageReactionKeys = new Set();
+    }
+    details.context.usedDamageReactionKeys.add(selected.reactionKey || damageReactionKey(selected.sourceRef, selected.abilityIndex, selected.ruleIndex));
+  }
   const interceptsDamage = normalizeEffects(selected.rule.effects)
     .some(effect => effect.type === EFFECT_TYPES.TAKE_DAMAGE_INSTEAD);
   const resolved = resolveEffects(state, selected.sourceRef.side, selected.sourceCard, selected.rule.effects, {
@@ -931,6 +1026,8 @@ function applyStatusEffect(card, effect) {
     [EFFECT_TYPES.BLOCK_RETREAT]: "block_retreat",
     [EFFECT_TYPES.SKIP_NEXT_ATTACK]: "skip_next_attack",
     [EFFECT_TYPES.CANNOT_USE_SAME_ATTACK_NEXT_TURN]: "cannot_use_same_attack",
+    [EFFECT_TYPES.POISON]: "poison",
+    [EFFECT_TYPES.DAMAGE_OVER_TIME]: "damage_over_time",
   };
   return addStatus(card, statusByType[effect.type] || effect.type.toLowerCase());
 }
@@ -1020,20 +1117,77 @@ function applyImmunityEffect(card, effect, amount) {
   if (effect.type === EFFECT_TYPES.SHARE_DAMAGE) {
     return { ...card, share_damage: true };
   }
+
+  if (effect.type === EFFECT_TYPES.SEARCH_CARD_BY_FILTER) {
+    next = updateSide(next, side, p => {
+      const updated = clone(p);
+      const candidates = updated.deck
+        .map((card, index) => ({ card, index }))
+        .filter(({ card }) => {
+          if (effect.filter_type === "NATURE") return !effect.nature || (card.natures || []).includes(effect.nature);
+          if (effect.filter_type === "CARD_TYPE") return !effect.card_type || card.card_type === effect.card_type;
+          if (effect.filter_type === "NAME") return !effect.card_name || card.name === effect.card_name;
+          return isBasicCharacter(card);
+        });
+      const picks = [];
+      const take = Math.max(1, amount || 1);
+      for (let i = 0; i < take && candidates.length > 0; i += 1) {
+        const pick = effect.random !== false ? randomIndex(candidates) : 0;
+        const [{ card, index }] = candidates.splice(pick, 1);
+        picks.push({ card, index });
+      }
+      picks.sort((a, b) => b.index - a.index).forEach(({ card, index }) => {
+        updated.hand.push(card);
+        updated.deck.splice(index, 1);
+      });
+      return updated;
+    });
+    return withLog(next, `${next.players[side].name} buscou carta(s) no deck.`);
+  }
+  if (effect.type === EFFECT_TYPES.INSTANT_KNOCKOUT_IF_DAMAGE_TYPE) {
+    return { ...card, instant_knockout_damage_type: effect.damage_type || effect.nature || effect.tag || "ANY" };
+  }
+  if (effect.type === EFFECT_TYPES.PREVENT_POINT_GAIN || effect.type === EFFECT_TYPES.CANCEL_KNOCKOUT_POINT) {
+    return { ...card, prevent_point_gain: true };
+  }
   return card;
 }
 
 function resolveConditionEffect(state, side, effect, amount, sourceCard) {
   if (effect.type === EFFECT_TYPES.COIN_FLIP) {
-    return withLog(state, `Moeda: ${Math.random() >= 0.5 ? "cara" : "coroa"}.`);
+    const success = Math.random() >= 0.5;
+    const after = resolveEffects(state, side, sourceCard, success ? effect.success_effects : effect.fail_effects, {
+      suppressRuleTriggers: true,
+      skipKnockoutCheck: true,
+    });
+    return withLog(after, `Moeda: ${success ? "cara" : "coroa"}.`);
   }
   if ([
     EFFECT_TYPES.DICE_ROLL,
     EFFECT_TYPES.IF_DICE_GREATER_THAN,
     EFFECT_TYPES.IF_DICE_LESS_THAN,
   ].includes(effect.type)) {
-    const roll = Math.floor(Math.random() * 6) + 1;
-    return withLog(state, `Dado: ${roll}${amount ? ` contra ${amount}` : ""}.`);
+    const rollCount = effect.roll_count_source === "SELF_BENCH_COUNT"
+      ? Math.max(1, state.players[side].bench.length)
+      : effect.roll_count_source === "ENERGY_COUNT"
+        ? Math.max(1, (sourceCard?.attached_energy || []).length)
+        : 1;
+    const threshold = effect.dice_threshold || amount || 0;
+    const comparison = effect.comparison || (effect.type === EFFECT_TYPES.IF_DICE_LESS_THAN ? "LT" : "GT");
+    const rolls = Array.from({ length: rollCount }, () => Math.floor(Math.random() * 6) + 1);
+    const compare = roll => (
+      comparison === "GTE" ? roll >= threshold :
+      comparison === "LTE" ? roll <= threshold :
+      comparison === "EQ" ? roll === threshold :
+      comparison === "LT" ? roll < threshold :
+      roll > threshold
+    );
+    const successes = rolls.filter(compare).length;
+    const after = resolveEffects(state, side, sourceCard, successes > 0 ? effect.success_effects : effect.fail_effects, {
+      suppressRuleTriggers: true,
+      skipKnockoutCheck: true,
+    });
+    return withLog(after, `Dado: ${rolls.join(", ")}. Sucessos: ${successes}.`);
   }
   if (effect.type === EFFECT_TYPES.IF_SELF_HAS_ENERGY_COUNT) {
     const total = (sourceCard?.attached_energy || []).length;
@@ -1135,6 +1289,16 @@ function resolveSpecialEffect(state, side, effect, amount, sourceCard) {
     return withLog(next, `${next.players[side].name} criou uma unidade temporaria.`);
   }
 
+  if (effect.type === EFFECT_TYPES.DISCARD_EQUIPMENT_AFTER_TRIGGER) {
+    const equippedRef = effect.equipped_card_ref;
+    if (!equippedRef) return next;
+    next = updateCardRef(next, equippedRef, card => ({
+      ...card,
+      equipments: (card.equipments || []).slice(1),
+    }));
+    return withLog(next, "Um equipamento foi descartado apos ativar.");
+  }
+
   return next;
 }
 
@@ -1147,6 +1311,14 @@ function applyEndTurnEffects(state, side) {
       hp_remaining: Math.max(0, (card.hp_remaining || 0) - 10),
     }));
     next = withLog(next, `${active.name} sofreu 10 de dano de queimadura.`);
+    next = resolveKnockouts(next, opponentOf(side));
+  }
+  if (active && (hasStatus(active, "poison") || hasStatus(active, "damage_over_time"))) {
+    next = updateCardRef(next, { side, zone: "active", index: 0 }, card => ({
+      ...card,
+      hp_remaining: Math.max(0, (card.hp_remaining || 0) - 10),
+    }));
+    next = withLog(next, `${active.name} sofreu 10 de dano continuo.`);
     next = resolveKnockouts(next, opponentOf(side));
   }
   if (!next.winner) {
@@ -1163,19 +1335,34 @@ const resolveKnockouts = (state, attackerSide) => {
   ["player", "opponent"].forEach(side => {
     const active = next.players[side].active;
     if (active && active.hp_remaining <= 0) {
-      const points = knockoutPoints(active);
-      next = resolveAbilityRulesForSide(next, attackerSide, ABILITY_TRIGGERS.ON_KNOCKOUT, {
+      next = resolveAbilityRulesForSide(next, side, ABILITY_TRIGGERS.BEFORE_KNOCKOUT, {
         targetRef: { side, zone: "active", index: 0 },
         knockedOutCard: active,
+        wouldBeKnockedOut: true,
+      });
+      const currentActive = next.players[side].active;
+      if (!currentActive || currentActive.hp_remaining > 0) return;
+      const points = currentActive.prevent_point_gain ? 0 : knockoutPoints(currentActive);
+      next = resolveAbilityRulesForSide(next, attackerSide, ABILITY_TRIGGERS.ON_KNOCKOUT, {
+        targetRef: { side, zone: "active", index: 0 },
+        knockedOutCard: currentActive,
       });
       next = updateSide(next, attackerSide, p => ({ ...p, points: p.points + points }));
       next = updateSide(next, side, p => {
         const updated = clone(p);
-        discardCardWithEquipments(updated, updated.active);
+        if (updated.active?.return_knocked_out_to_hand) {
+          updated.hand.push(toHandCard(updated.active));
+          discardEquipments(updated, updated.active);
+        } else {
+          discardCardWithEquipments(updated, updated.active);
+        }
         updated.active = null;
-        return promoteIfNeeded(updated);
+        return updated;
       });
-      next = withLog(next, `${active.name} foi nocauteada. ${next.players[attackerSide].name} ganhou ${points} ponto(s).`);
+      next = resolveAbilityRulesForSide(next, attackerSide, ABILITY_TRIGGERS.AFTER_KNOCKOUT, {
+        knockedOutCard: currentActive,
+      });
+      next = withLog(next, `${currentActive.name} foi nocauteada. ${next.players[attackerSide].name} ganhou ${points} ponto(s).`);
     }
 
     const defeatedBench = next.players[side].bench
@@ -1184,19 +1371,34 @@ const resolveKnockouts = (state, attackerSide) => {
       .reverse();
 
     defeatedBench.forEach(({ card, index }) => {
-      const points = knockoutPoints(card);
-      next = resolveAbilityRulesForSide(next, attackerSide, ABILITY_TRIGGERS.ON_KNOCKOUT, {
+      next = resolveAbilityRulesForSide(next, side, ABILITY_TRIGGERS.BEFORE_KNOCKOUT, {
         targetRef: { side, zone: "bench", index },
         knockedOutCard: card,
+        wouldBeKnockedOut: true,
+      });
+      const currentCard = next.players[side].bench[index];
+      if (!currentCard || currentCard.hp_remaining > 0) return;
+      const points = currentCard.prevent_point_gain ? 0 : knockoutPoints(currentCard);
+      next = resolveAbilityRulesForSide(next, attackerSide, ABILITY_TRIGGERS.ON_KNOCKOUT, {
+        targetRef: { side, zone: "bench", index },
+        knockedOutCard: currentCard,
       });
       next = updateSide(next, attackerSide, p => ({ ...p, points: p.points + points }));
       next = updateSide(next, side, p => {
         const updated = clone(p);
-        discardCardWithEquipments(updated, updated.bench[index]);
+        if (updated.bench[index]?.return_knocked_out_to_hand) {
+          updated.hand.push(toHandCard(updated.bench[index]));
+          discardEquipments(updated, updated.bench[index]);
+        } else {
+          discardCardWithEquipments(updated, updated.bench[index]);
+        }
         updated.bench.splice(index, 1);
         return updated;
       });
-      next = withLog(next, `${card.name} foi nocauteada no banco. ${next.players[attackerSide].name} ganhou ${points} ponto(s).`);
+      next = resolveAbilityRulesForSide(next, attackerSide, ABILITY_TRIGGERS.AFTER_KNOCKOUT, {
+        knockedOutCard: currentCard,
+      });
+      next = withLog(next, `${currentCard.name} foi nocauteada no banco. ${next.players[attackerSide].name} ganhou ${points} ponto(s).`);
     });
   });
 
@@ -1212,8 +1414,8 @@ export function resolveEffects(state, side, sourceCard, effects, context = {}) {
     target_override: context.targetOverride && DAMAGE_EFFECTS.has(effect.type) ? context.targetOverride : null,
     energy_source_override: context.energySourceOverride || null,
     equipped_card_ref: context.equippedCardRef || sourceRef,
-    damage_source_ref: context.damageSourceRef || sourceRef,
-    damage_target_ref: context.damageTargetRef || null,
+    damage_source_ref: context.damageSourceRef || context.sourceRef || sourceRef,
+    damage_target_ref: context.damageTargetRef || context.targetRef || null,
   })).filter(effect => effectConditionMatches(next, effect, context));
 
   normalized.forEach(effect => {
@@ -1287,7 +1489,7 @@ export function resolveEffects(state, side, sourceCard, effects, context = {}) {
       return;
     }
 
-    const refs = targetRefsForEffect(next, side, effect);
+    const refs = targetRefsForEffect(next, side, effect, context);
     if (refs.length === 0) return;
 
     refs.forEach(ref => {
@@ -1308,8 +1510,10 @@ export function resolveEffects(state, side, sourceCard, effects, context = {}) {
         }
         const passiveBonus = sourceCard?.instance_id === next.players[side].active?.instance_id ? passiveDamageBonus(sourceCard) : 0;
         const staticBonus = parseInt(sourceCard?.bonus_damage, 10) || 0;
+        const energySource = effect.energy_owner === "TARGET" ? redirectedTarget : sourceCard;
+        const energyUnitAmount = effect.per_energy_amount || amount;
         const energyBonus = effect.type === EFFECT_TYPES.DAMAGE_EXTRA_BY_ENERGY
-          ? (sourceCard?.attached_energy || []).length * amount
+          ? (energySource?.attached_energy || []).filter(type => !effect.energy_type || type === effect.energy_type).length * energyUnitAmount
           : 0;
         const benchBonus = effect.type === EFFECT_TYPES.DAMAGE_EXTRA_BY_BENCH_CARD
           ? next.players[side].bench.filter(card =>
@@ -1318,10 +1522,14 @@ export function resolveEffects(state, side, sourceCard, effects, context = {}) {
               (!effect.card_name && !effect.nature)
             ).length * amount
           : 0;
-        const targetTypeBonus = effect.type === EFFECT_TYPES.DAMAGE_EXTRA_BY_TARGET_TYPE &&
-          ((effect.nature && (redirectedTarget.natures || []).includes(effect.nature)) || !effect.nature)
-          ? amount
-          : 0;
+        const targetNatures = [effect.nature, ...(effect.natures || [])].filter(Boolean);
+        const targetTags = [effect.tag, ...(effect.tags || [])].map(tag => String(tag).toUpperCase()).filter(Boolean);
+        const targetTypeMatches = (
+          (targetNatures.length === 0 && targetTags.length === 0) ||
+          targetNatures.some(nature => (redirectedTarget.natures || []).includes(nature)) ||
+          targetTags.some(tag => cardTags(redirectedTarget).includes(tag))
+        );
+        const targetTypeBonus = effect.type === EFFECT_TYPES.DAMAGE_EXTRA_BY_TARGET_TYPE && targetTypeMatches ? amount : 0;
         const diceBonus = effect.type === EFFECT_TYPES.DAMAGE_EXTRA_BY_DICE
           ? (Math.floor(Math.random() * 6) + 1) * amount
           : 0;
@@ -1357,6 +1565,19 @@ export function resolveEffects(state, side, sourceCard, effects, context = {}) {
           ? 2
           : 1;
         const rawTotal = Math.max(0, splitAmount + passiveBonus + staticBonus + energyBonus + benchBonus + targetTypeBonus + diceBonus + coinBonus + consecutiveBonus);
+        if (
+          effect.type === EFFECT_TYPES.INSTANT_KNOCKOUT_IF_DAMAGE_TYPE &&
+          (
+            effect.damage_type === "ANY" ||
+            (effect.nature && (sourceCard?.natures || []).includes(effect.nature)) ||
+            (effect.tag && cardTags(sourceCard).includes(String(effect.tag).toUpperCase())) ||
+            (!effect.damage_type && !effect.nature && !effect.tag)
+          )
+        ) {
+          next = updateCardRef(next, redirectedRef, card => ({ ...card, hp_remaining: 0 }));
+          next = withLog(next, `${redirectedTarget.name} foi nocauteado por tipo de dano.`);
+          return;
+        }
         const reduction = Math.max(0, parseInt(redirectedTarget.pending_damage_reduction, 10) || 0);
         const multiplier = (Number.isFinite(redirectedTarget.next_damage_multiplier) ? redirectedTarget.next_damage_multiplier : 1) * doubleMultiplier;
         const total = Math.max(0, Math.floor((rawTotal - reduction) * multiplier));
@@ -1487,6 +1708,9 @@ export function resolveEffects(state, side, sourceCard, effects, context = {}) {
       } else if (IMMUNITY_EFFECTS.has(effect.type)) {
         next = updateCardRef(next, ref, card => applyImmunityEffect(card, effect, amount));
         next = withLog(next, `${target.name} recebeu um efeito defensivo.`);
+      } else if (effect.type === EFFECT_TYPES.RETURN_KNOCKED_OUT_TO_HAND) {
+        next = updateCardRef(next, ref, card => ({ ...card, return_knocked_out_to_hand: true }));
+        next = withLog(next, `${target.name} voltara para a mao se for nocauteada.`);
       } else if (effect.type === EFFECT_TYPES.RETURN_CARD_TO_DECK) {
         next = updateSide(next, ref.side, p => {
           const { player: updated, removed } = removeTargetCard(p, ref.zone, ref.index);
@@ -1561,7 +1785,28 @@ export function finishSetup(state) {
     ...state,
     phase: "battle",
     turn: "player",
+    turn_moment: TURN_MOMENTS.TURN_START,
+    turn_events: [TURN_MOMENTS.TURN_START],
   }, "Duelo iniciado.");
+}
+
+export function drawTurnCard(state, side) {
+  if (state.phase !== "battle" || state.winner || state.turn !== side) return state;
+  const player = state.players[side];
+  if (player.drew_this_turn || (player.deck || []).length === 0) return state;
+
+  let next = updateSide(state, side, p => ({
+    ...draw(p, 1),
+    drew_this_turn: true,
+  }));
+
+  next = {
+    ...next,
+    turn_moment: TURN_MOMENTS.ACTION,
+    turn_events: Array.from(new Set([...(next.turn_events || []), TURN_MOMENTS.DRAW])),
+  };
+
+  return withLog(next, `${player.name} comprou 1 carta.`);
 }
 
 export function playToBench(state, side, handIndex) {
@@ -1687,7 +1932,7 @@ export function activateAbility(state, side, abilityIndex, context = {}) {
     return endTurn(withLog(state, `${active.name} ficou confuso e falhou o ataque.`));
   }
 
-  let next = withLog(state, `${attacker.name} usou ${ability.name}.`);
+  let next = withLog({ ...state, turn_moment: TURN_MOMENTS.ATTACK }, `${attacker.name} usou ${ability.name}.`);
   const sourceRef = { side, zone: "active", index: 0 };
   next = resolveEffects(next, side, active, effectsForAbilityTrigger(next, side, sourceRef, ability, ABILITY_TRIGGERS.ON_ATTACK, context), {
     ...context,
@@ -1705,6 +1950,10 @@ export function playActionCard(state, side, handIndex, context = {}) {
   const player = state.players[side];
   const card = player.hand[handIndex];
   if (!card || card.card_type === "Personagem" || card.card_type === "Energia") return state;
+
+  if (card.card_type === "Mestre" && player.master_used_this_turn) {
+    return withLog(state, `${player.name} ja usou uma carta Mestre neste turno.`);
+  }
 
   if (card.card_type === "Equipamento") {
     if (!player.active) return state;
@@ -1729,6 +1978,7 @@ export function playActionCard(state, side, handIndex, context = {}) {
     const updated = clone(p);
     updated.hand.splice(handIndex, 1);
     updated.discard.push(card);
+    if (card.card_type === "Mestre") updated.master_used_this_turn = true;
     return updated;
   });
   next = withLog(next, `${player.name} usou ${card.name}.`);
@@ -1763,9 +2013,24 @@ export function retreat(state, side, benchIndex) {
   return withLog(next, `${player.name} recuou ${active.name}.`);
 }
 
+export function promoteFromBench(state, side, benchIndex) {
+  if (state.phase !== "battle" || state.winner) return state;
+  const player = state.players[side];
+  if (player.active || benchIndex < 0 || benchIndex >= player.bench.length || !player.bench[benchIndex]) return state;
+
+  let next = updateSide(state, side, p => {
+    const updated = clone(p);
+    updated.active = updated.bench[benchIndex];
+    updated.bench.splice(benchIndex, 1);
+    return updated;
+  });
+
+  return withLog(next, `${player.name} promoveu ${player.bench[benchIndex].name} para a ativa.`);
+}
+
 export function endTurn(state) {
   if (state.phase !== "battle" || state.winner) return state;
-  const processed = applyEndTurnEffects(state, state.turn);
+  const processed = applyEndTurnEffects({ ...state, turn_moment: TURN_MOMENTS.TURN_END }, state.turn);
   if (processed.winner) return processed;
   const nextSide = opponentOf(processed.turn);
   const nextTurnNumber = processed.turn === "opponent" ? processed.turn_number + 1 : processed.turn_number;
@@ -1774,15 +2039,19 @@ export function endTurn(state) {
     ...processed,
     turn: nextSide,
     turn_number: nextTurnNumber,
+    turn_moment: TURN_MOMENTS.TURN_START,
+    turn_events: [TURN_MOMENTS.TURN_START],
   };
 
   next = updateSide(next, nextSide, p => ({
-    ...draw(p, 1),
+    ...p,
     energy_zone: {
       current: p.energy_zone?.next || randomEnergy(p.energy_types),
       next: randomEnergy(p.energy_types),
     },
     energy_remaining: ENERGY_PER_TURN,
+    master_used_this_turn: false,
+    drew_this_turn: false,
   }));
 
   next = withLog(next, `Turno de ${next.players[nextSide].name}.`);
@@ -1793,6 +2062,10 @@ export function endTurn(state) {
 export function runBotTurn(state, context = {}) {
   if (state.phase !== "battle" || state.winner || state.turn !== "opponent") return state;
   let next = state;
+  if (!next.players.opponent.active && next.players.opponent.bench.length > 0) {
+    next = promoteFromBench(next, "opponent", 0);
+  }
+  next = drawTurnCard(next, "opponent");
   const bot = next.players.opponent;
 
   const benchIndex = bot.hand.findIndex(isBasicCharacter);

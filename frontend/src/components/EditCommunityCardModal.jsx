@@ -9,6 +9,12 @@ import {
   ABILITY_POSITION_OPTIONS,
   ABILITY_TRIGGER_LABELS,
   ABILITY_TRIGGERS,
+  CARD_META_AGES,
+  CARD_META_AGE_LABELS,
+  CARD_META_KEYS,
+  COMMON_META_ELEMENTS,
+  COMMON_META_STYLES,
+  COMMON_META_WEAPONS,
   DURATIONS,
   DURATION_LABELS,
   EFFECT_CONDITIONS,
@@ -18,7 +24,9 @@ import {
   TARGETS,
   TARGET_LABELS,
   abilityConditionValueLabel,
+  advancedEffectExtraFields,
   effectSummary,
+  normalizeCardMeta,
   normalizeAbilityConditions,
   normalizeAbilityRules,
   normalizeEquipmentPassiveEffects,
@@ -42,6 +50,11 @@ const normalizeAdditionalInfo = info => (
         .filter(item => item.label || item.value)
     : []
 );
+const toggleListValue = (list, value) => (
+  (list || []).includes(value)
+    ? (list || []).filter(item => item !== value)
+    : [...(list || []), value]
+);
 const BLANK_EFFECT = {
   type: EFFECT_TYPES.DAMAGE,
   target: TARGETS.OPPONENT_ACTIVE,
@@ -53,6 +66,7 @@ const BLANK_EFFECT = {
   card_name: "",
   tag: "",
   condition: EFFECT_CONDITIONS.ALWAYS,
+  ...advancedEffectExtraFields,
 };
 
 const BLANK_RULE_CONDITION = {
@@ -81,12 +95,38 @@ const POSITION_CONDITION_TYPES = new Set([
   ABILITY_CONDITION_TYPES.SOURCE_POSITION,
   ABILITY_CONDITION_TYPES.TARGET_POSITION,
 ]);
+const NATURE_CONDITION_TYPES = new Set([
+  ABILITY_CONDITION_TYPES.TARGET_NATURE_IN,
+  ABILITY_CONDITION_TYPES.SOURCE_NATURE_IN,
+  ABILITY_CONDITION_TYPES.BENCH_HAS_NATURE,
+]);
+const CARD_TYPE_CONDITION_TYPES = new Set([
+  ABILITY_CONDITION_TYPES.TARGET_CARD_TYPE_IN,
+  ABILITY_CONDITION_TYPES.SOURCE_CARD_TYPE_IN,
+]);
+const NUMBER_CONDITION_TYPES = new Set([
+  ABILITY_CONDITION_TYPES.SELF_ENERGY_COUNT_GTE,
+  ABILITY_CONDITION_TYPES.TARGET_ENERGY_COUNT_GTE,
+  ABILITY_CONDITION_TYPES.DAMAGE_AMOUNT_GTE,
+]);
+const NO_VALUE_CONDITION_TYPES = new Set([
+  ABILITY_CONDITION_TYPES.TARGET_IS_DAMAGED,
+  ABILITY_CONDITION_TYPES.HAS_EQUIPMENT,
+  ABILITY_CONDITION_TYPES.WOULD_BE_KNOCKED_OUT,
+  ABILITY_CONDITION_TYPES.ONCE_PER_TURN,
+]);
+const META_CONDITION_TYPES = new Set([
+  ABILITY_CONDITION_TYPES.SOURCE_META_VALUE_IN,
+  ABILITY_CONDITION_TYPES.TARGET_META_VALUE_IN,
+]);
 
 const defaultRuleConditionValue = type => {
   if (POSITION_CONDITION_TYPES.has(type)) return ABILITY_POSITION_OPTIONS[0]?.value || "ACTIVE";
-  if (type === ABILITY_CONDITION_TYPES.TARGET_NATURE_IN) return [];
+  if (NATURE_CONDITION_TYPES.has(type) || CARD_TYPE_CONDITION_TYPES.has(type)) return [];
   if (type === ABILITY_CONDITION_TYPES.SELF_HAS_ENERGY_TYPE) return ENERGY_TYPES[0] || "";
-  if (type === ABILITY_CONDITION_TYPES.SELF_ENERGY_COUNT_GTE) return 1;
+  if (NUMBER_CONDITION_TYPES.has(type)) return 1;
+  if (type === ABILITY_CONDITION_TYPES.BENCH_HAS_CARD_NAME) return "";
+  if (META_CONDITION_TYPES.has(type)) return { key: CARD_META_KEYS[0], values: [] };
   return "";
 };
 
@@ -113,7 +153,7 @@ const RuleConditionValueControl = ({ condition, onChange, className }) => {
     );
   }
 
-  if (draft.type === ABILITY_CONDITION_TYPES.TARGET_NATURE_IN) {
+  if (NATURE_CONDITION_TYPES.has(draft.type)) {
     const selected = Array.isArray(draft.value)
       ? draft.value
       : String(draft.value || "").split(",").map(item => item.trim()).filter(Boolean);
@@ -129,6 +169,17 @@ const RuleConditionValueControl = ({ condition, onChange, className }) => {
     );
   }
 
+  if (CARD_TYPE_CONDITION_TYPES.has(draft.type)) {
+    const selected = Array.isArray(draft.value)
+      ? draft.value
+      : String(draft.value || "").split(",").map(item => item.trim()).filter(Boolean);
+    return (
+      <select multiple value={selected} onChange={e => onChange(Array.from(e.target.selectedOptions).map(option => option.value))} className={`${className} min-h-[7rem]`}>
+        {CARD_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
+      </select>
+    );
+  }
+
   if (draft.type === ABILITY_CONDITION_TYPES.SELF_HAS_ENERGY_TYPE) {
     return (
       <select value={draft.value || ENERGY_TYPES[0] || ""} onChange={e => onChange(e.target.value)} className={className}>
@@ -137,9 +188,33 @@ const RuleConditionValueControl = ({ condition, onChange, className }) => {
     );
   }
 
-  if (draft.type === ABILITY_CONDITION_TYPES.SELF_ENERGY_COUNT_GTE) {
+  if (NUMBER_CONDITION_TYPES.has(draft.type)) {
     return (
       <input type="number" min={0} value={draft.value ?? 1} onChange={e => onChange(parseInt(e.target.value, 10) || 0)} className={`${className} font-mono`} />
+    );
+  }
+
+  if (draft.type === ABILITY_CONDITION_TYPES.BENCH_HAS_CARD_NAME) {
+    return <input value={draft.value || ""} onChange={e => onChange(e.target.value)} placeholder="Nome da carta" className={className} />;
+  }
+
+  if (META_CONDITION_TYPES.has(draft.type)) {
+    const value = typeof draft.value === "object" && !Array.isArray(draft.value) ? draft.value : { key: CARD_META_KEYS[0], values: [] };
+    return (
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-[10rem_minmax(0,1fr)]">
+        <select value={value.key || CARD_META_KEYS[0]} onChange={e => onChange({ ...value, key: e.target.value })} className={className}>
+          {CARD_META_KEYS.map(key => <option key={key} value={key}>{key}</option>)}
+        </select>
+        <input value={Array.isArray(value.values) ? value.values.join(", ") : ""} onChange={e => onChange({ ...value, values: e.target.value.split(",").map(item => item.trim().toUpperCase()).filter(Boolean) })} placeholder="Valores separados por virgula" className={className} />
+      </div>
+    );
+  }
+
+  if (NO_VALUE_CONDITION_TYPES.has(draft.type)) {
+    return (
+      <div className="flex h-10 items-center rounded-lg border border-slate-800 bg-slate-950 px-3 text-sm text-slate-500">
+        Sem valor
+      </div>
     );
   }
 
@@ -161,21 +236,45 @@ const EFFECT_FIELD_CONFIG = {
   [EFFECT_TYPES.ADD_TYPED_ENERGY]: ["target", "energy_type", "amount"],
   [EFFECT_TYPES.ADD_ENERGY]: ["target", "amount"],
   [EFFECT_TYPES.ADD_MULTIPLE_ENERGY]: ["target", "energy_type", "amount"],
-  [EFFECT_TYPES.DAMAGE_EXTRA_BY_TARGET_TYPE]: ["target", "nature", "amount", "duration"],
-  [EFFECT_TYPES.DAMAGE_EXTRA_BY_BENCH_CARD]: ["target", "card_name", "nature", "amount"],
+  [EFFECT_TYPES.DAMAGE_RANDOM_TARGETS]: ["target", "amount", "random_targets_count"],
+  [EFFECT_TYPES.DAMAGE_ANY_TARGET]: ["target", "amount", "allow_manual_target"],
+  [EFFECT_TYPES.DAMAGE_EXTRA_BY_TARGET_TYPE]: ["target", "nature", "natures", "tag", "tags", "amount", "duration"],
+  [EFFECT_TYPES.DAMAGE_EXTRA_BY_BENCH_CARD]: ["target", "card_name", "nature", "amount", "per_count"],
+  [EFFECT_TYPES.DAMAGE_EXTRA_BY_ENERGY]: ["target", "amount", "per_energy_amount", "energy_owner", "energy_type"],
+  [EFFECT_TYPES.DAMAGE_EXTRA_BY_DICE]: ["target", "amount", "dice_threshold", "comparison", "roll_count_source"],
+  [EFFECT_TYPES.DAMAGE_EXTRA_BY_COIN]: ["target", "amount", "success_amount"],
+  [EFFECT_TYPES.DAMAGE_CONSECUTIVE_STACK]: ["target", "amount", "stack_key", "reset_on_miss"],
+  [EFFECT_TYPES.DAMAGE_SPLIT]: ["target", "amount", "split_mode"],
   [EFFECT_TYPES.BUFF_BASE_ATTRIBUTES]: ["target", "attribute", "amount", "duration"],
-  [EFFECT_TYPES.BUFF_DAMAGE_BY_TAG]: ["target", "tag", "amount", "duration"],
-  [EFFECT_TYPES.BUFF_DAMAGE_BY_ATTACHED_ENERGY]: ["target", "energy_type", "amount", "duration"],
+  [EFFECT_TYPES.BUFF_DAMAGE_BY_TAG]: ["target", "tag", "tags", "amount", "duration", "applies_to_tag"],
+  [EFFECT_TYPES.BUFF_DAMAGE_BY_ATTACHED_ENERGY]: ["target", "energy_type", "amount", "per_energy_amount", "energy_owner", "duration"],
   [EFFECT_TYPES.DOUBLE_DAMAGE_AGAINST_TYPE]: ["target", "nature", "duration"],
   [EFFECT_TYPES.TAKE_DAMAGE_INSTEAD]: [],
   [EFFECT_TYPES.WEAKNESS_OVERRIDE]: ["target", "nature", "duration"],
   [EFFECT_TYPES.ENERGY_REQUIRED_TYPE]: ["target", "energy_type", "duration"],
+  [EFFECT_TYPES.REMOVE_ENERGY]: ["target", "amount", "energy_type"],
+  [EFFECT_TYPES.REMOVE_RANDOM_ENERGY]: ["target", "amount", "random"],
   [EFFECT_TYPES.IF_BENCH_HAS_CARD]: ["card_name"],
   [EFFECT_TYPES.IF_TARGET_NATURE]: ["target", "nature"],
   [EFFECT_TYPES.IF_TARGET_TAG]: ["target", "tag"],
   [EFFECT_TYPES.IF_SELF_HAS_ENERGY_COUNT]: ["energy_type", "amount"],
   [EFFECT_TYPES.IF_BENCH_COUNT_BY_NATURE]: ["nature", "amount"],
   [EFFECT_TYPES.BUFF_EQUIPPED_CARD_DAMAGE]: ["target", "amount", "condition"],
+  [EFFECT_TYPES.SEARCH_CARD_BY_FILTER]: ["amount", "filter_type", "nature", "card_type", "card_name", "random"],
+  [EFFECT_TYPES.RETURN_KNOCKED_OUT_TO_HAND]: ["target"],
+  [EFFECT_TYPES.PREVENT_POINT_GAIN]: ["target", "duration"],
+  [EFFECT_TYPES.CANCEL_KNOCKOUT_POINT]: ["target", "duration"],
+  [EFFECT_TYPES.POISON]: ["target", "amount", "duration"],
+  [EFFECT_TYPES.DAMAGE_OVER_TIME]: ["target", "amount", "duration"],
+  [EFFECT_TYPES.IMMUNE_TO_DAMAGE_TYPE]: ["target", "nature", "tag", "damage_type", "duration", "applies_to"],
+  [EFFECT_TYPES.INSTANT_KNOCKOUT_IF_DAMAGE_TYPE]: ["target", "nature", "tag", "damage_type", "duration"],
+  [EFFECT_TYPES.COUNTER_DAMAGE]: ["target", "amount", "duration"],
+  [EFFECT_TYPES.STATUS_ON_ATTACKER]: ["target", "tag", "duration"],
+  [EFFECT_TYPES.TRANSFORM_INTO_OPPONENT_BENCH_CARD]: ["target", "keep_negative_effects"],
+  [EFFECT_TYPES.ABSORB_OWN_BENCH_CARD]: ["target", "absorb_hp", "absorb_damage", "absorb_energy"],
+  [EFFECT_TYPES.CREATE_TEMPORARY_UNIT]: ["card_name", "amount", "temporary_hp", "duration"],
+  [EFFECT_TYPES.PLAY_ITEM_AS_UNIT]: ["target", "temporary_hp", "duration"],
+  [EFFECT_TYPES.DISCARD_EQUIPMENT_AFTER_TRIGGER]: ["target", "condition"],
 };
 const DEFAULT_EFFECT_FIELDS = ["target", "amount", "duration"];
 
@@ -367,6 +466,94 @@ const DynamicEffectControls = ({ effect, onChange, onAdd }) => {
             <input value={effect.tag || ""} onChange={e => onChange("tag", e.target.value)} className={inputCls} />
           </label>
         )}
+        {show("natures") && (
+          <label className="min-w-[13rem] flex-[1_1_16rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Naturezas</span>
+            <select multiple value={effect.natures || []} onChange={e => onChange("natures", Array.from(e.target.selectedOptions).map(option => option.value))} className={`${inputCls} min-h-[7rem]`}>
+              {NATURES.map(nature => <option key={nature} value={nature}>{nature}</option>)}
+            </select>
+          </label>
+        )}
+        {show("tags") && (
+          <label className="min-w-[14rem] flex-[1_1_16rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Marcadores</span>
+            <input value={(effect.tags || []).join(", ")} onChange={e => onChange("tags", e.target.value.split(",").map(item => item.trim()).filter(Boolean))} className={inputCls} />
+          </label>
+        )}
+        {["random_targets_count", "per_energy_amount", "discard_amount", "dice_threshold", "success_amount", "temporary_hp"].filter(show).map(field => (
+          <label key={field} className="min-w-[11rem] flex-[1_1_13rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">{field}</span>
+            <input type="number" min={0} value={effect[field] ?? 0} onChange={e => onChange(field, parseInt(e.target.value, 10) || 0)} className={`${inputCls} font-mono`} />
+          </label>
+        ))}
+        {show("energy_owner") && (
+          <label className="min-w-[11rem] flex-[1_1_13rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Energia de</span>
+            <select value={effect.energy_owner || "SELF"} onChange={e => onChange("energy_owner", e.target.value)} className={inputCls}>
+              <option value="SELF">Propria carta</option>
+              <option value="TARGET">Alvo</option>
+            </select>
+          </label>
+        )}
+        {show("comparison") && (
+          <label className="min-w-[11rem] flex-[1_1_13rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Comparacao</span>
+            <select value={effect.comparison || "GTE"} onChange={e => onChange("comparison", e.target.value)} className={inputCls}>
+              {["GTE", "LTE", "GT", "LT", "EQ"].map(value => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+        )}
+        {show("roll_count_source") && (
+          <label className="min-w-[13rem] flex-[1_1_14rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Rolagens</span>
+            <select value={effect.roll_count_source || "FIXED"} onChange={e => onChange("roll_count_source", e.target.value)} className={inputCls}>
+              <option value="FIXED">Fixa</option>
+              <option value="SELF_BENCH_COUNT">Cartas no banco</option>
+              <option value="ENERGY_COUNT">Energias</option>
+            </select>
+          </label>
+        )}
+        {show("split_mode") && (
+          <label className="min-w-[13rem] flex-[1_1_14rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Modo de divisao</span>
+            <select value={effect.split_mode || "EVEN"} onChange={e => onChange("split_mode", e.target.value)} className={inputCls}>
+              <option value="EVEN">Dividir igualmente</option>
+              <option value="MANUAL">Manual pelo frontend</option>
+            </select>
+          </label>
+        )}
+        {show("filter_type") && (
+          <label className="min-w-[13rem] flex-[1_1_14rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Filtro</span>
+            <select value={effect.filter_type || "BASIC"} onChange={e => onChange("filter_type", e.target.value)} className={inputCls}>
+              <option value="BASIC">Basica</option>
+              <option value="NATURE">Natureza</option>
+              <option value="CARD_TYPE">Tipo de carta</option>
+              <option value="NAME">Nome</option>
+            </select>
+          </label>
+        )}
+        {show("card_type") && (
+          <label className="min-w-[13rem] flex-[1_1_14rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Tipo de carta</span>
+            <select value={effect.card_type || ""} onChange={e => onChange("card_type", e.target.value)} className={inputCls}>
+              <option value="">Qualquer</option>
+              {CARD_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
+            </select>
+          </label>
+        )}
+        {["damage_type", "applies_to", "stack_key", "applies_to_tag", "applies_to_nature"].filter(show).map(field => (
+          <label key={field} className="min-w-[13rem] flex-[1_1_14rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">{field}</span>
+            <input value={effect[field] || ""} onChange={e => onChange(field, e.target.value)} className={inputCls} />
+          </label>
+        ))}
+        {["allow_manual_target", "per_count", "random", "absorb_hp", "absorb_damage", "absorb_energy", "keep_negative_effects", "reset_on_miss"].filter(show).map(field => (
+          <label key={field} className="flex min-h-10 min-w-[12rem] flex-[1_1_12rem] items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-300">
+            <input type="checkbox" checked={Boolean(effect[field])} onChange={e => onChange(field, e.target.checked)} />
+            {field}
+          </label>
+        ))}
         <div className="mt-2 flex basis-full justify-end">
           <button
             type="button"
@@ -431,6 +618,7 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
       expansion: card.expansion || "",
       universe: card.universe || "",
       additional_info: normalizeAdditionalInfo(card.additional_info),
+      meta: normalizeCardMeta(card.meta),
       public_status: card.public_status || "approved",
     });
   }, [card]);
@@ -474,6 +662,16 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
     setForm(f => ({
       ...f,
       additional_info: (f.additional_info || []).filter((_, itemIndex) => itemIndex !== index),
+    }));
+  };
+
+  const updateMeta = (field, value) => {
+    setForm(f => ({
+      ...f,
+      meta: {
+        ...normalizeCardMeta(f.meta),
+        [field]: value,
+      },
     }));
   };
 
@@ -594,10 +792,20 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
 
   const updateAbilityEffectDraft = (abilityIndex, field, value) => {
     const ability = form.abilities[abilityIndex];
-    updateAbility(abilityIndex, "effect_to_add", {
-      ...(ability.effect_to_add || BLANK_EFFECT),
-      [field]: field === "amount" ? parseInt(value, 10) || 0 : value,
-    });
+    if (field === "type") {
+      updateAbility(abilityIndex, "effect_to_add", {
+        ...BLANK_EFFECT,
+        type: value,
+        target: effectFieldsFor(value).includes("target")
+          ? TARGETS.OPPONENT_ACTIVE
+          : "",
+      });
+    } else {
+      updateAbility(abilityIndex, "effect_to_add", {
+        ...(ability.effect_to_add || BLANK_EFFECT),
+        [field]: field === "amount" ? parseInt(value, 10) || 0 : value,
+      });
+    }
   };
 
   const addAbilityEffect = abilityIndex => {
@@ -672,13 +880,26 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
   const updateAbilityRuleEffectDraft = (abilityIndex, field, value) => {
     const ability = form.abilities[abilityIndex];
     const rule = ability.rule_to_add || makeBlankRule();
-    updateAbility(abilityIndex, "rule_to_add", {
-      ...rule,
-      effect_to_add: {
-        ...(rule.effect_to_add || BLANK_EFFECT),
-        [field]: field === "amount" ? parseInt(value, 10) || 0 : value,
-      },
-    });
+    if (field === "type") {
+      updateAbility(abilityIndex, "rule_to_add", {
+        ...rule,
+        effect_to_add: {
+          ...BLANK_EFFECT,
+          type: value,
+          target: effectFieldsFor(value).includes("target")
+            ? TARGETS.OPPONENT_ACTIVE
+            : "",
+        },
+      });
+    } else {
+      updateAbility(abilityIndex, "rule_to_add", {
+        ...rule,
+        effect_to_add: {
+          ...(rule.effect_to_add || BLANK_EFFECT),
+          [field]: field === "amount" ? parseInt(value, 10) || 0 : value,
+        },
+      });
+    }
   };
 
   const addAbilityRuleEffect = abilityIndex => {
@@ -778,6 +999,7 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
         expansion: String(form.expansion || "").trim(),
         universe: String(form.universe || "").trim(),
         additional_info: normalizeAdditionalInfo(form.additional_info),
+        meta: normalizeCardMeta(form.meta),
         evolution_number: form.is_evolution ? (normalizeEvolutionNumber(form.evolution_number) || "II") : null,
         evolves_from_card_id: form.is_evolution ? (form.evolves_from_card_id || null) : null,
         evolves_from_name: form.is_evolution ? (form.evolves_from_name || null) : null,
@@ -862,6 +1084,40 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
               <label className={labelCls}>Universo</label>
               <input value={form.universe || ""} onChange={e => set("universe", e.target.value)} placeholder="Ex: Naruto" maxLength={60} className={inputCls} />
             </div>
+          </div>
+          <div className="rounded-lg border border-slate-800 bg-slate-950/45 p-3 space-y-3">
+            <div className="text-[10px] uppercase tracking-wider text-slate-500">Meta para efeitos avancados</div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <label>
+                <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Idade</span>
+                <select value={normalizeCardMeta(form.meta).age} onChange={e => updateMeta("age", e.target.value)} className={inputCls}>
+                  <option value="">Sem idade</option>
+                  {Object.values(CARD_META_AGES).map(age => <option key={age} value={age}>{CARD_META_AGE_LABELS[age]}</option>)}
+                </select>
+              </label>
+              <label>
+                <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Arma</span>
+                <input list="community-card-meta-weapons" value={normalizeCardMeta(form.meta).weapon} onChange={e => updateMeta("weapon", e.target.value.toUpperCase())} placeholder="Ex: ESPADA" className={inputCls} />
+              </label>
+              <label>
+                <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Estilo</span>
+                <input list="community-card-meta-styles" value={normalizeCardMeta(form.meta).style} onChange={e => updateMeta("style", e.target.value.toUpperCase())} placeholder="Ex: LOGIA" className={inputCls} />
+              </label>
+            </div>
+            <div>
+              <span className="mb-2 block text-[10px] uppercase tracking-wider text-slate-500">Elementos</span>
+              <div className="flex flex-wrap gap-2">
+                {COMMON_META_ELEMENTS.map(element => (
+                  <button key={element} type="button" onClick={() => updateMeta("elements", toggleListValue(normalizeCardMeta(form.meta).elements, element))} className={`rounded-full border px-2 py-1 text-xs ${normalizeCardMeta(form.meta).elements.includes(element) ? "border-indigo-400 bg-indigo-500/20 text-indigo-100" : "border-slate-700 bg-slate-900 text-slate-300"}`}>{element}</button>
+                ))}
+              </div>
+            </div>
+            <label>
+              <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Tags meta</span>
+              <input value={normalizeCardMeta(form.meta).tags.join(", ")} onChange={e => updateMeta("tags", e.target.value.split(",").map(item => item.trim().toUpperCase()).filter(Boolean))} placeholder="Ex: LOGIA, MAGO, PIRATA" className={inputCls} />
+            </label>
+            <datalist id="community-card-meta-weapons">{COMMON_META_WEAPONS.map(item => <option key={item} value={item} />)}</datalist>
+            <datalist id="community-card-meta-styles">{COMMON_META_STYLES.map(item => <option key={item} value={item} />)}</datalist>
           </div>
           <div className="space-y-2">
             {(form.additional_info || []).map((info, index) => (

@@ -58,9 +58,42 @@ class Effect(BaseModel):
     attribute: Optional[str] = None
     energy_type: Optional[str] = None
     nature: Optional[str] = None
+    natures: List[str] = []
     card_name: Optional[str] = None
     tag: Optional[str] = None
+    tags: List[str] = []
     condition: Optional[str] = None
+    hits: int = 0
+    count: int = 0
+    random_targets_count: int = 0
+    split_mode: Optional[str] = None
+    allow_manual_target: bool = False
+    per_count: bool = False
+    per_energy_amount: int = 0
+    energy_owner: Optional[str] = None
+    discard_amount: int = 0
+    random: bool = False
+    dice_threshold: int = 0
+    comparison: Optional[str] = None
+    success_effects: List[Any] = []
+    fail_effects: List[Any] = []
+    roll_count_source: Optional[str] = None
+    success_amount: int = 0
+    damage_type: Optional[str] = None
+    applies_to: Optional[str] = None
+    absorb_hp: bool = False
+    absorb_damage: bool = False
+    absorb_energy: bool = False
+    keep_negative_effects: bool = False
+    temporary_hp: int = 0
+    filter_type: Optional[str] = None
+    card_type: Optional[str] = None
+    stack_key: Optional[str] = None
+    reset_on_miss: bool = False
+    applies_to_tag: Optional[str] = None
+    applies_to_nature: Optional[str] = None
+    meta_key: Optional[str] = None
+    meta_value: Optional[str] = None
 
 
 class AbilityRuleCondition(BaseModel):
@@ -88,6 +121,14 @@ class Ability(BaseModel):
 class AdditionalInfoField(BaseModel):
     label: str = ""
     value: str = ""
+
+
+class CardMeta(BaseModel):
+    age: str = ""
+    elements: List[str] = []
+    weapon: str = ""
+    style: str = ""
+    tags: List[str] = []
 
 
 class UserCreate(BaseModel):
@@ -142,6 +183,7 @@ class CardCreate(BaseModel):
     expansion: str = ""
     universe: str = ""
     additional_info: List[AdditionalInfoField] = []
+    meta: CardMeta = Field(default_factory=CardMeta)
     public_status: str = "private"  # private | pending | approved | rejected
     is_evolution: bool = False
     evolution_number: Optional[str] = None
@@ -201,6 +243,14 @@ def normalize_card_payload(body: CardCreate) -> dict:
 
     payload["expansion"] = str(payload.get("expansion") or "").strip()
     payload["universe"] = str(payload.get("universe") or "").strip()
+    meta = payload.get("meta") or {}
+    payload["meta"] = {
+        "age": str(meta.get("age") or "").strip(),
+        "elements": [str(item).strip() for item in (meta.get("elements") or []) if str(item).strip()],
+        "weapon": str(meta.get("weapon") or "").strip(),
+        "style": str(meta.get("style") or "").strip(),
+        "tags": [str(item).strip() for item in (meta.get("tags") or []) if str(item).strip()],
+    }
     payload["additional_info"] = [
         {
             "label": str(info.get("label") or "").strip()[:40],
@@ -228,6 +278,8 @@ def normalize_card_payload(body: CardCreate) -> dict:
             amount = effect.get("amount") or 0
             if amount < 0:
                 raise HTTPException(status_code=400, detail="Valor do efeito nao pode ser negativo")
+            success_effects = normalize_effects(effect.get("success_effects", []))
+            fail_effects = normalize_effects(effect.get("fail_effects", []))
             normalized.append({
                 "type": effect_type,
                 "target": effect.get("target") or "OPPONENT_ACTIVE",
@@ -236,9 +288,42 @@ def normalize_card_payload(body: CardCreate) -> dict:
                 "attribute": effect.get("attribute") or None,
                 "energy_type": effect.get("energy_type") or None,
                 "nature": effect.get("nature") or None,
+                "natures": [str(item).strip() for item in (effect.get("natures") or []) if str(item).strip()],
                 "card_name": effect.get("card_name") or None,
                 "tag": effect.get("tag") or None,
+                "tags": [str(item).strip() for item in (effect.get("tags") or []) if str(item).strip()],
                 "condition": effect.get("condition") or None,
+                "hits": max(0, int(effect.get("hits") or 0)),
+                "count": max(0, int(effect.get("count") or 0)),
+                "random_targets_count": max(0, int(effect.get("random_targets_count") or 0)),
+                "split_mode": effect.get("split_mode") or None,
+                "allow_manual_target": bool(effect.get("allow_manual_target")),
+                "per_count": bool(effect.get("per_count")),
+                "per_energy_amount": max(0, int(effect.get("per_energy_amount") or 0)),
+                "energy_owner": effect.get("energy_owner") or None,
+                "discard_amount": max(0, int(effect.get("discard_amount") or 0)),
+                "random": bool(effect.get("random")),
+                "dice_threshold": max(0, int(effect.get("dice_threshold") or 0)),
+                "comparison": effect.get("comparison") or None,
+                "success_effects": success_effects,
+                "fail_effects": fail_effects,
+                "roll_count_source": effect.get("roll_count_source") or None,
+                "success_amount": max(0, int(effect.get("success_amount") or 0)),
+                "damage_type": effect.get("damage_type") or None,
+                "applies_to": effect.get("applies_to") or None,
+                "absorb_hp": bool(effect.get("absorb_hp")),
+                "absorb_damage": bool(effect.get("absorb_damage")),
+                "absorb_energy": bool(effect.get("absorb_energy")),
+                "keep_negative_effects": bool(effect.get("keep_negative_effects")),
+                "temporary_hp": max(0, int(effect.get("temporary_hp") or 0)),
+                "filter_type": effect.get("filter_type") or None,
+                "card_type": effect.get("card_type") or None,
+                "stack_key": effect.get("stack_key") or None,
+                "reset_on_miss": bool(effect.get("reset_on_miss")),
+                "applies_to_tag": effect.get("applies_to_tag") or None,
+                "applies_to_nature": effect.get("applies_to_nature") or None,
+                "meta_key": effect.get("meta_key") or None,
+                "meta_value": effect.get("meta_value") or None,
             })
         return normalized
 
@@ -1093,6 +1178,8 @@ def _make_duel_player(name: str, cards: list[dict], energy_types: list[str], tur
         "energy_types": energies,
         "energy_zone": {"current": _random_energy(energies), "next": _random_energy(energies)},
         "energy_remaining": ONLINE_DUEL_ENERGY_PER_TURN,
+        "master_used_this_turn": False,
+        "drew_this_turn": False,
         "setup_ready": False,
     }
     return _draw_cards(player, ONLINE_DUEL_HAND_SIZE)
@@ -1209,8 +1296,6 @@ def _set_target_card(player: dict, zone: str, index: int, card: dict) -> dict:
 
 def _promote_if_needed(player: dict) -> dict:
     next_player = copy.deepcopy(player)
-    if not next_player.get("active") and next_player.get("bench"):
-        next_player["active"] = next_player["bench"].pop(0)
     return next_player
 
 
@@ -1294,18 +1379,29 @@ def _finish_online_turn(state: dict) -> dict:
         next_state = _resolve_online_knockouts(next_state, _opponent_side(ending_side))
         if next_state.get("winner"):
             return next_state
+    active = next_state["players"][ending_side].get("active")
+    if active and any(status in (active.get("status_effects") or []) for status in ["poison", "damage_over_time"]):
+        active["hp_remaining"] = max(0, int(active.get("hp_remaining") or 0) - 10)
+        next_state["players"][ending_side]["active"] = active
+        next_state = _with_duel_log(next_state, f"{active.get('name')} sofreu 10 de dano continuo.")
+        next_state = _resolve_online_knockouts(next_state, _opponent_side(ending_side))
+        if next_state.get("winner"):
+            return next_state
     next_state["players"][ending_side] = _online_clear_side_turn_statuses(next_state["players"][ending_side])
     next_side = _opponent_side(next_state["turn"])
     if next_state["turn"] == "p2":
         next_state["turn_number"] = next_state.get("turn_number", 1) + 1
     next_state["turn"] = next_side
+    next_state["turn_moment"] = "TURN_START"
+    next_state["turn_events"] = ["TURN_START"]
     player = next_state["players"][next_side]
-    player = _draw_cards(player, 1)
     player["energy_zone"] = {
         "current": player.get("energy_zone", {}).get("next") or _random_energy(player.get("energy_types", [])),
         "next": _random_energy(player.get("energy_types", [])),
     }
     player["energy_remaining"] = ONLINE_DUEL_ENERGY_PER_TURN
+    player["master_used_this_turn"] = False
+    player["drew_this_turn"] = False
     next_state["players"][next_side] = player
     return _with_duel_log(next_state, f"Turno de {player.get('name')}.")
 
@@ -1407,15 +1503,15 @@ ONLINE_DAMAGE_EFFECTS = {
     "DAMAGE_ALL_OPPONENT_BENCH", "DAMAGE_SELF", "DAMAGE_EXTRA_BY_ENERGY",
     "DAMAGE_EXTRA_BY_BENCH_CARD", "DAMAGE_EXTRA_BY_TARGET_TYPE", "DAMAGE_EXTRA_BY_DICE",
     "DAMAGE_EXTRA_BY_COIN", "DAMAGE_CONSECUTIVE_STACK", "DAMAGE_SPLIT",
-    "DAMAGE_TO_PREVIOUSLY_DAMAGED_BENCH",
+    "DAMAGE_TO_PREVIOUSLY_DAMAGED_BENCH", "COUNTER_DAMAGE", "INSTANT_KNOCKOUT_IF_DAMAGE_TYPE",
 }
 ONLINE_HEAL_EFFECTS = {"HEAL", "HEAL_SELF", "HEAL_ACTIVE", "HEAL_BENCH", "HEAL_ANY_SELF_CARD", "HEAL_EQUIPPED_CARD", "HEAL_BY_DAMAGE_DEALT", "HEAL_ALLY_ON_DAMAGE", "HEAL_PER_TURN"}
 ONLINE_ADD_ENERGY_EFFECTS = {"ADD_ENERGY", "ADD_TYPED_ENERGY", "ADD_ENERGY_TO_ACTIVE", "ADD_ENERGY_TO_BENCH", "ADD_ENERGY_BY_COIN", "ADD_ENERGY_BY_DAMAGE_TAKEN", "ADD_ENERGY_ON_ATTACK", "ADD_MULTIPLE_ENERGY"}
 ONLINE_REMOVE_ENERGY_EFFECTS = {"REMOVE_ENERGY", "REMOVE_RANDOM_ENERGY", "DISCARD_OWN_ENERGY"}
 ONLINE_BUFF_EFFECTS = {"BUFF_DAMAGE", "BUFF_DAMAGE_THIS_TURN", "BUFF_DAMAGE_NEXT_TURN", "BUFF_EQUIPPED_CARD_DAMAGE", "BUFF_DAMAGE_BY_TAG", "BUFF_DAMAGE_BY_ATTACHED_ENERGY", "BUFF_BASE_ATTRIBUTES", "INCREASE_MAX_HP", "BUFF_HEAL_AMOUNT", "DOUBLE_DAMAGE_AGAINST_TYPE", "WEAKNESS_OVERRIDE", "ALPHA_POINT_OVERRIDE", "ENERGY_ANY_TYPE", "ENERGY_COST_REDUCTION", "ENERGY_REQUIRED_TYPE", "IGNORE_RETREAT_COST", "REDUCE_RETREAT_COST", "ATTACK_FROM_BENCH"}
 ONLINE_DEFENSE_EFFECTS = {"REDUCE_DAMAGE", "REDUCE_NEXT_DAMAGE", "HALVE_DAMAGE_TAKEN", "PREVENT_DAMAGE"}
-ONLINE_STATUS_EFFECTS = {"BURN", "PARALYZE", "FREEZE", "CONFUSE", "PREVENT_ATTACK", "PREVENT_RETREAT", "BLOCK_RETREAT", "SKIP_NEXT_ATTACK", "CANNOT_USE_SAME_ATTACK_NEXT_TURN"}
-ONLINE_IMMUNITY_EFFECTS = {"IMMUNE_TO_DAMAGE_TYPE", "IMMUNE_TO_NEGATIVE_EFFECTS", "IGNORE_TOOL_EFFECTS", "REFLECT_DAMAGE", "REFLECT_DOUBLE_DAMAGE", "REDIRECT_DAMAGE", "SHARE_DAMAGE"}
+ONLINE_STATUS_EFFECTS = {"BURN", "PARALYZE", "FREEZE", "CONFUSE", "PREVENT_ATTACK", "PREVENT_RETREAT", "BLOCK_RETREAT", "SKIP_NEXT_ATTACK", "CANNOT_USE_SAME_ATTACK_NEXT_TURN", "POISON", "DAMAGE_OVER_TIME", "STATUS_ON_ATTACKER"}
+ONLINE_IMMUNITY_EFFECTS = {"IMMUNE_TO_DAMAGE_TYPE", "IMMUNE_TO_NEGATIVE_EFFECTS", "IGNORE_TOOL_EFFECTS", "REFLECT_DAMAGE", "REFLECT_DOUBLE_DAMAGE", "REDIRECT_DAMAGE", "SHARE_DAMAGE", "PREVENT_POINT_GAIN", "CANCEL_KNOCKOUT_POINT", "INSTANT_KNOCKOUT_IF_DAMAGE_TYPE"}
 ONLINE_ONE_TURN_STATUSES = {"paralyze", "freeze", "prevent_attack", "prevent_retreat", "block_retreat", "skip_next_attack", "cannot_use_same_attack"}
 ONLINE_STATUS_BY_EFFECT = {
     "BURN": "burn",
@@ -1427,6 +1523,9 @@ ONLINE_STATUS_BY_EFFECT = {
     "BLOCK_RETREAT": "block_retreat",
     "SKIP_NEXT_ATTACK": "skip_next_attack",
     "CANNOT_USE_SAME_ATTACK_NEXT_TURN": "cannot_use_same_attack",
+    "POISON": "poison",
+    "DAMAGE_OVER_TIME": "damage_over_time",
+    "STATUS_ON_ATTACKER": "status_on_attacker",
 }
 ONLINE_EQUIPMENT_DAMAGE_BONUS_EFFECTS = {"BUFF_DAMAGE", "BUFF_DAMAGE_THIS_TURN", "BUFF_DAMAGE_NEXT_TURN", "BUFF_EQUIPPED_CARD_DAMAGE", "BUFF_DAMAGE_BY_TAG", "BUFF_DAMAGE_BY_ATTACHED_ENERGY"}
 ONLINE_EQUIPMENT_ON_EQUIP_EFFECTS = {
@@ -1538,6 +1637,10 @@ def _online_apply_immunity(card: dict, effect: dict) -> dict:
         updated["redirect_damage"] = True
     elif effect_type == "SHARE_DAMAGE":
         updated["share_damage"] = True
+    elif effect_type in ["PREVENT_POINT_GAIN", "CANCEL_KNOCKOUT_POINT"]:
+        updated["prevent_point_gain"] = True
+    elif effect_type == "INSTANT_KNOCKOUT_IF_DAMAGE_TYPE":
+        updated["instant_knockout_damage_type"] = effect.get("damage_type") or effect.get("nature") or effect.get("tag") or "ANY"
     return updated
 
 
@@ -1614,6 +1717,32 @@ def _resolve_online_effects(state: dict, side: str, source_card: Optional[dict],
             next_state = _with_duel_log(next_state, f"{next_state['players'][side].get('name')} comprou {effect.get('amount') or 1} carta(s).")
             continue
 
+        if effect_type == "SEARCH_CARD_BY_FILTER":
+            player = copy.deepcopy(next_state["players"][side])
+            candidates = []
+            for index, card in enumerate(player.get("deck") or []):
+                if effect.get("filter_type") == "NATURE":
+                    matches = not effect.get("nature") or effect.get("nature") in (card.get("natures") or [])
+                elif effect.get("filter_type") == "CARD_TYPE":
+                    matches = not effect.get("card_type") or card.get("card_type") == effect.get("card_type")
+                elif effect.get("filter_type") == "NAME":
+                    matches = not effect.get("card_name") or card.get("name") == effect.get("card_name")
+                else:
+                    matches = _is_basic_character(card)
+                if matches:
+                    candidates.append({"index": index, "card": card})
+            take = max(1, int(effect.get("amount") or 1))
+            selected = []
+            for _ in range(min(take, len(candidates))):
+                pick = random.randrange(len(candidates)) if effect.get("random", True) else 0
+                selected.append(candidates.pop(pick))
+            for item in sorted(selected, key=lambda entry: entry["index"], reverse=True):
+                player.setdefault("hand", []).append(item["card"])
+                player["deck"].pop(item["index"])
+            next_state["players"][side] = player
+            next_state = _with_duel_log(next_state, f"{player.get('name')} buscou carta(s) no deck.")
+            continue
+
         target_override = context.get("target_override") if effect_type in ONLINE_DAMAGE_EFFECTS else None
         if target_override:
             effect = {**effect, "target_override": target_override}
@@ -1639,8 +1768,17 @@ def _resolve_online_effects(state: dict, side: str, source_card: Optional[dict],
                     continue
                 passive_bonus = _online_passive_damage_bonus(source_card)
                 static_bonus = int((source_card or {}).get("bonus_damage") or 0)
-                energy_bonus = len((source_card or {}).get("attached_energy") or []) * amount if effect_type == "DAMAGE_EXTRA_BY_ENERGY" else 0
-                target_type_bonus = amount if effect_type == "DAMAGE_EXTRA_BY_TARGET_TYPE" and (not effect.get("nature") or effect.get("nature") in (damage_target.get("natures") or [])) else 0
+                energy_source = damage_target if effect.get("energy_owner") == "TARGET" else (source_card or {})
+                per_energy_amount = int(effect.get("per_energy_amount") or amount)
+                energy_bonus = len([energy for energy in (energy_source or {}).get("attached_energy") or [] if not effect.get("energy_type") or energy == effect.get("energy_type")]) * per_energy_amount if effect_type == "DAMAGE_EXTRA_BY_ENERGY" else 0
+                target_natures = [item for item in [effect.get("nature"), *(effect.get("natures") or [])] if item]
+                target_tags = [str(item).upper() for item in [effect.get("tag"), *(effect.get("tags") or [])] if item]
+                target_type_matches = (
+                    (not target_natures and not target_tags) or
+                    any(nature in (damage_target.get("natures") or []) for nature in target_natures) or
+                    any(tag in _online_card_tags(damage_target) for tag in target_tags)
+                )
+                target_type_bonus = amount if effect_type == "DAMAGE_EXTRA_BY_TARGET_TYPE" and target_type_matches else 0
                 coin_bonus = amount if effect_type == "DAMAGE_EXTRA_BY_COIN" and random.random() >= 0.5 else 0
                 dice_bonus = (random.randint(1, 6) * amount) if effect_type == "DAMAGE_EXTRA_BY_DICE" else 0
                 split_amount = int((amount + len(refs) - 1) / len(refs)) if effect_type == "DAMAGE_SPLIT" and refs else amount
@@ -1649,6 +1787,11 @@ def _resolve_online_effects(state: dict, side: str, source_card: Optional[dict],
                     ((source_card or {}).get("double_damage_against") and (source_card or {}).get("double_damage_against") in (damage_target.get("natures") or []))
                 ) else 1
                 raw_total = max(0, split_amount + passive_bonus + static_bonus + energy_bonus + target_type_bonus + coin_bonus + dice_bonus)
+                if effect_type == "INSTANT_KNOCKOUT_IF_DAMAGE_TYPE":
+                    damage_target["hp_remaining"] = 0
+                    next_state = _online_set_ref_card(next_state, damage_ref, damage_target)
+                    next_state = _with_duel_log(next_state, f"{damage_target.get('name')} foi nocauteado por tipo de dano.")
+                    continue
                 reduction = max(0, int(damage_target.get("pending_damage_reduction") or 0))
                 multiplier = (damage_target.get("next_damage_multiplier") if isinstance(damage_target.get("next_damage_multiplier"), (int, float)) else 1) * double_multiplier
                 total = max(0, int((raw_total - reduction) * multiplier))
@@ -1739,6 +1882,25 @@ def _online_condition_values(value: Any) -> list[str]:
     return [part.strip() for part in str(value or "").split(",") if part.strip()]
 
 
+def _online_card_tags(card: Optional[dict]) -> list[str]:
+    if not card:
+        return []
+    return [str(tag).upper() for tag in [*(card.get("tags") or []), *((card.get("meta") or {}).get("tags") or [])]]
+
+
+def _online_meta_matches(card: Optional[dict], value: Any) -> bool:
+    if not card or not isinstance(value, dict):
+        return False
+    key = value.get("key") or value.get("meta_key")
+    values = value.get("values") or value.get("value") or []
+    if not isinstance(values, list):
+        values = [part.strip() for part in str(values).split(",") if part.strip()]
+    expected = [str(item).upper() for item in values if str(item).strip()]
+    current = (card.get("meta") or {}).get(key)
+    current_values = current if isinstance(current, list) else [current]
+    return any(str(item).upper() in expected for item in current_values if item)
+
+
 def _online_ref_position(ref: Optional[dict]) -> str:
     zone = (ref or {}).get("zone")
     if zone == "bench":
@@ -1757,6 +1919,7 @@ def _online_rule_condition_matches(state: dict, condition: dict, context: dict) 
     source_card = context.get("source_card")
     target_ref = context.get("target_ref")
     target_card = _online_ref_card(state, target_ref)
+    source_side = (source_ref or {}).get("side") or context.get("side") or "p1"
 
     if condition_type == "SOURCE_POSITION":
         expected = str(value or "ACTIVE").upper()
@@ -1767,12 +1930,38 @@ def _online_rule_condition_matches(state: dict, condition: dict, context: dict) 
     if condition_type == "TARGET_NATURE_IN":
         values = _online_condition_values(value)
         return bool(target_card and any(nature in values for nature in target_card.get("natures") or []))
+    if condition_type == "SOURCE_NATURE_IN":
+        values = _online_condition_values(value)
+        return bool(source_card and any(nature in values for nature in source_card.get("natures") or []))
+    if condition_type == "TARGET_CARD_TYPE_IN":
+        return (target_card or {}).get("card_type") in _online_condition_values(value)
+    if condition_type == "SOURCE_CARD_TYPE_IN":
+        return (source_card or {}).get("card_type") in _online_condition_values(value)
     if condition_type == "TARGET_IS_DAMAGED":
         return bool(target_card and int(target_card.get("hp_remaining") or 0) < int(target_card.get("hp") or 0))
     if condition_type == "SELF_HAS_ENERGY_TYPE":
         return str(value or "") in (source_card or {}).get("attached_energy", [])
     if condition_type == "SELF_ENERGY_COUNT_GTE":
         return len((source_card or {}).get("attached_energy") or []) >= max(0, int(value or 0))
+    if condition_type == "TARGET_ENERGY_COUNT_GTE":
+        return len((target_card or {}).get("attached_energy") or []) >= max(0, int(value or 0))
+    if condition_type == "BENCH_HAS_CARD_NAME":
+        return any((card or {}).get("name") == value for card in state["players"][source_side].get("bench") or [])
+    if condition_type == "BENCH_HAS_NATURE":
+        values = _online_condition_values(value)
+        return any(any(nature in values for nature in (card or {}).get("natures") or []) for card in state["players"][source_side].get("bench") or [])
+    if condition_type == "HAS_EQUIPMENT":
+        return bool((source_card or {}).get("equipments") or (target_card or {}).get("equipments"))
+    if condition_type == "DAMAGE_AMOUNT_GTE":
+        return int(context.get("damage_amount") or 0) >= max(0, int(value or 0))
+    if condition_type == "WOULD_BE_KNOCKED_OUT":
+        return bool(context.get("would_be_knocked_out") or (target_card and int(target_card.get("hp_remaining") or 0) <= int(context.get("damage_amount") or 0)))
+    if condition_type == "ONCE_PER_TURN":
+        return (source_card or {}).get("last_rule_turn") != state.get("turn_number")
+    if condition_type == "SOURCE_META_VALUE_IN":
+        return _online_meta_matches(source_card, value)
+    if condition_type == "TARGET_META_VALUE_IN":
+        return _online_meta_matches(target_card, value)
     return False
 
 
@@ -1824,10 +2013,23 @@ def _can_pay_online_ability(card: dict, ability: dict) -> bool:
     attached = card.get("attached_energy") or []
     if card.get("energy_any_type"):
         return len(attached) >= sum(cost["amount"] for cost in adjusted)
-    counts = {energy: 0 for energy in ENERGY_TYPES}
-    for energy in attached:
-        counts[energy] = counts.get(energy, 0) + 1
-    return all(counts.get(cost["energy_type"], 0) >= cost["amount"] for cost in adjusted)
+
+    remaining = list(attached)
+    generic_cost = sum(cost["amount"] for cost in adjusted if cost["energy_type"] == "Universal")
+    specific_costs = [cost for cost in adjusted if cost["energy_type"] != "Universal"]
+
+    for cost in specific_costs:
+        for _ in range(cost["amount"]):
+            try:
+                index = remaining.index(cost["energy_type"])
+            except ValueError:
+                try:
+                    index = remaining.index("Universal")
+                except ValueError:
+                    return False
+            remaining.pop(index)
+
+    return len(remaining) >= generic_cost
 
 
 def _online_evolution_stage(card: Optional[dict]) -> int:
@@ -1893,6 +2095,32 @@ def _apply_online_action(state: dict, side: str, action: OnlineDuelAction) -> di
     if next_state.get("phase") != "battle" or next_state.get("winner") or next_state.get("turn") != side:
         return state
 
+    if action.kind == "draw_card":
+        if player.get("drew_this_turn") or not player.get("deck"):
+            return state
+        player = _draw_cards(player, 1)
+        player["drew_this_turn"] = True
+        next_state["players"][side] = player
+        next_state["turn_moment"] = "ACTION"
+        next_state["turn_events"] = list(dict.fromkeys([*(next_state.get("turn_events") or []), "DRAW"]))
+        return _with_duel_log(next_state, f"{player.get('name')} comprou 1 carta.")
+
+    if action.kind == "promote":
+        if (
+            player.get("active")
+            or action.bench_index is None
+            or action.bench_index < 0
+            or action.bench_index >= len(player.get("bench", []))
+        ):
+            return state
+        promoted = player["bench"].pop(action.bench_index)
+        player["active"] = promoted
+        next_state["players"][side] = player
+        return _with_duel_log(_check_online_winner(next_state), f"{player.get('name')} promoveu {promoted.get('name')} para a ativa.")
+
+    if not player.get("drew_this_turn") and player.get("deck"):
+        return _with_duel_log(next_state, "Compre uma carta antes de agir.")
+
     if action.kind == "play_to_bench":
         card = player.get("hand", [])[action.hand_index or 0] if action.hand_index is not None and action.hand_index < len(player.get("hand", [])) else None
         if not _is_basic_character(card) or len(player.get("bench", [])) >= ONLINE_DUEL_BENCH_LIMIT:
@@ -1925,6 +2153,8 @@ def _apply_online_action(state: dict, side: str, action: OnlineDuelAction) -> di
         card = player.get("hand", [])[action.hand_index or 0] if action.hand_index is not None and action.hand_index < len(player.get("hand", [])) else None
         if not card or card.get("card_type") in ["Personagem", "Energia"]:
             return state
+        if card.get("card_type") == "Mestre" and player.get("master_used_this_turn"):
+            return _with_duel_log(next_state, f"{player.get('name')} ja usou uma carta Mestre neste turno.")
         if card.get("card_type") == "Equipamento":
             active = player.get("active")
             if not active or active.get("equipments"):
@@ -1944,6 +2174,8 @@ def _apply_online_action(state: dict, side: str, action: OnlineDuelAction) -> di
             })
         player["hand"].pop(action.hand_index)
         player.setdefault("discard", []).append(card)
+        if card.get("card_type") == "Mestre":
+            player["master_used_this_turn"] = True
         next_state["players"][side] = player
         next_state = _with_duel_log(next_state, f"{player.get('name')} usou {card.get('name')}.")
         return _resolve_online_effects(next_state, side, card, card.get("effects") or [], {
@@ -1985,6 +2217,7 @@ def _apply_online_action(state: dict, side: str, action: OnlineDuelAction) -> di
             return state
         if next_state.get("turn_number", 1) <= 1:
             return _with_duel_log(next_state, "Nao e possivel atacar no primeiro turno.")
+        next_state["turn_moment"] = "ATTACK"
         next_state = _with_duel_log(next_state, f"{active.get('name')} usou {ability.get('name')}.")
         source_ref = {"side": side, "zone": "active", "index": 0}
         target_ref = {"side": _opponent_side(side), "zone": action.zone or "active", "index": action.target_index or 0}
@@ -2157,6 +2390,8 @@ async def choose_online_duel_deck(duel_id: str, body: OnlineDuelDeckChoice, requ
             "phase": "setup",
             "turn": starter,
             "turn_number": 1,
+            "turn_moment": "SETUP",
+            "turn_events": [],
             "winner": None,
             "log": [f"Cara ou coroa: deu {result}. {duel['players'][starter]['name']} comeca."],
             "players": {
@@ -2186,6 +2421,8 @@ async def online_duel_setup_ready(duel_id: str, body: OnlineDuelSetupReady, requ
     state["players"][side]["setup_ready"] = body.ready
     if all(state["players"][s].get("active") and state["players"][s].get("setup_ready") for s in ["p1", "p2"]):
         state["phase"] = "battle"
+        state["turn_moment"] = "TURN_START"
+        state["turn_events"] = ["TURN_START"]
         state = _with_duel_log(state, "Duelo iniciado.")
         status = "battle"
     else:

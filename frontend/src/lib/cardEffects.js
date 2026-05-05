@@ -119,6 +119,16 @@ export const EFFECT_TYPES = {
   ABSORB_OWN_BENCH_CARD: "ABSORB_OWN_BENCH_CARD",
   CREATE_TEMPORARY_UNIT: "CREATE_TEMPORARY_UNIT",
   PLAY_ITEM_AS_UNIT: "PLAY_ITEM_AS_UNIT",
+  POISON: "POISON",
+  DAMAGE_OVER_TIME: "DAMAGE_OVER_TIME",
+  INSTANT_KNOCKOUT_IF_DAMAGE_TYPE: "INSTANT_KNOCKOUT_IF_DAMAGE_TYPE",
+  COUNTER_DAMAGE: "COUNTER_DAMAGE",
+  RETURN_KNOCKED_OUT_TO_HAND: "RETURN_KNOCKED_OUT_TO_HAND",
+  PREVENT_POINT_GAIN: "PREVENT_POINT_GAIN",
+  CANCEL_KNOCKOUT_POINT: "CANCEL_KNOCKOUT_POINT",
+  SEARCH_CARD_BY_FILTER: "SEARCH_CARD_BY_FILTER",
+  STATUS_ON_ATTACKER: "STATUS_ON_ATTACKER",
+  DISCARD_EQUIPMENT_AFTER_TRIGGER: "DISCARD_EQUIPMENT_AFTER_TRIGGER",
 };
 
 const labelFromValue = value => value
@@ -247,6 +257,16 @@ export const EFFECT_TYPE_LABELS = {
   [EFFECT_TYPES.ABSORB_OWN_BENCH_CARD]: "Absorver carta do proprio banco",
   [EFFECT_TYPES.CREATE_TEMPORARY_UNIT]: "Criar unidade temporaria",
   [EFFECT_TYPES.PLAY_ITEM_AS_UNIT]: "Jogar item como unidade",
+  [EFFECT_TYPES.POISON]: "Envenenar",
+  [EFFECT_TYPES.DAMAGE_OVER_TIME]: "Dano por turno",
+  [EFFECT_TYPES.INSTANT_KNOCKOUT_IF_DAMAGE_TYPE]: "Nocaute por tipo de dano",
+  [EFFECT_TYPES.COUNTER_DAMAGE]: "Contra-atacar com dano",
+  [EFFECT_TYPES.RETURN_KNOCKED_OUT_TO_HAND]: "Nocauteado volta para mao",
+  [EFFECT_TYPES.PREVENT_POINT_GAIN]: "Impedir ganho de ponto",
+  [EFFECT_TYPES.CANCEL_KNOCKOUT_POINT]: "Cancelar ponto de nocaute",
+  [EFFECT_TYPES.SEARCH_CARD_BY_FILTER]: "Buscar carta por filtro",
+  [EFFECT_TYPES.STATUS_ON_ATTACKER]: "Status no atacante",
+  [EFFECT_TYPES.DISCARD_EQUIPMENT_AFTER_TRIGGER]: "Descartar equipamento apos ativar",
 };
 
 export const TARGETS = {
@@ -295,8 +315,11 @@ export const TARGET_LABELS = {
 
 export const DURATIONS = {
   INSTANT: "INSTANT",
+  NEXT_DAMAGE: "NEXT_DAMAGE",
   THIS_TURN: "THIS_TURN",
   NEXT_TURN: "NEXT_TURN",
+  UNTIL_TURN_END: "UNTIL_TURN_END",
+  UNTIL_CONDITION_CLEARED: "UNTIL_CONDITION_CLEARED",
   UNTIL_LEAVES_ACTIVE: "UNTIL_LEAVES_ACTIVE",
   UNTIL_RETURNS_TO_BENCH: "UNTIL_RETURNS_TO_BENCH",
   UNTIL_KNOCKED_OUT: "UNTIL_KNOCKED_OUT",
@@ -306,8 +329,11 @@ export const DURATIONS = {
 
 export const DURATION_LABELS = {
   [DURATIONS.INSTANT]: "Instantaneo",
+  [DURATIONS.NEXT_DAMAGE]: "Proximo dano",
   [DURATIONS.THIS_TURN]: "Neste turno",
   [DURATIONS.NEXT_TURN]: "Proximo turno",
+  [DURATIONS.UNTIL_TURN_END]: "Ate o fim do turno",
+  [DURATIONS.UNTIL_CONDITION_CLEARED]: "Ate limpar condicao",
   [DURATIONS.UNTIL_LEAVES_ACTIVE]: "Ate sair da ativa",
   [DURATIONS.UNTIL_RETURNS_TO_BENCH]: "Ate voltar ao banco",
   [DURATIONS.UNTIL_KNOCKED_OUT]: "Ate ser nocauteado",
@@ -386,42 +412,97 @@ export const EQUIPMENT_ON_EQUIP_EFFECT_TYPES = new Set([
 export const ABILITY_TRIGGERS = {
   ON_ATTACK: "ON_ATTACK",
   BEFORE_DAMAGE_TAKEN: "BEFORE_DAMAGE_TAKEN",
+  BEFORE_DAMAGE_APPLIED: "BEFORE_DAMAGE_APPLIED",
+  BEFORE_ALLY_ACTIVE_TAKES_DAMAGE: "BEFORE_ALLY_ACTIVE_TAKES_DAMAGE",
+  ALLY_ACTIVE_WOULD_BE_KNOCKED_OUT: "ALLY_ACTIVE_WOULD_BE_KNOCKED_OUT",
+  BEFORE_KNOCKOUT: "BEFORE_KNOCKOUT",
   ON_DAMAGE_TAKEN: "ON_DAMAGE_TAKEN",
+  AFTER_DAMAGE_APPLIED: "AFTER_DAMAGE_APPLIED",
   ALLY_ACTIVE_TAKES_DAMAGE: "ALLY_ACTIVE_TAKES_DAMAGE",
   ON_ENERGY_ATTACHED: "ON_ENERGY_ATTACHED",
   ON_TURN_START: "ON_TURN_START",
   ON_TURN_END: "ON_TURN_END",
   ON_KNOCKOUT: "ON_KNOCKOUT",
+  AFTER_KNOCKOUT: "AFTER_KNOCKOUT",
 };
 
 export const ABILITY_TRIGGER_LABELS = {
   [ABILITY_TRIGGERS.ON_ATTACK]: "Ao atacar",
   [ABILITY_TRIGGERS.BEFORE_DAMAGE_TAKEN]: "Antes de receber dano",
+  [ABILITY_TRIGGERS.BEFORE_DAMAGE_APPLIED]: "Antes de aplicar dano",
+  [ABILITY_TRIGGERS.BEFORE_ALLY_ACTIVE_TAKES_DAMAGE]: "Antes da ativa aliada receber dano",
+  [ABILITY_TRIGGERS.ALLY_ACTIVE_WOULD_BE_KNOCKED_OUT]: "Quando ativa aliada seria nocauteada",
+  [ABILITY_TRIGGERS.BEFORE_KNOCKOUT]: "Antes do nocaute",
   [ABILITY_TRIGGERS.ON_DAMAGE_TAKEN]: "Ao receber dano",
+  [ABILITY_TRIGGERS.AFTER_DAMAGE_APPLIED]: "Depois de aplicar dano",
   [ABILITY_TRIGGERS.ALLY_ACTIVE_TAKES_DAMAGE]: "Quando aliada ativa recebe dano",
   [ABILITY_TRIGGERS.ON_ENERGY_ATTACHED]: "Ao anexar energia",
   [ABILITY_TRIGGERS.ON_TURN_START]: "No inicio do turno",
   [ABILITY_TRIGGERS.ON_TURN_END]: "No fim do turno",
   [ABILITY_TRIGGERS.ON_KNOCKOUT]: "Ao nocautear",
+  [ABILITY_TRIGGERS.AFTER_KNOCKOUT]: "Depois do nocaute",
 };
 
 export const ABILITY_CONDITION_TYPES = {
   SOURCE_POSITION: "SOURCE_POSITION",
   TARGET_POSITION: "TARGET_POSITION",
   TARGET_NATURE_IN: "TARGET_NATURE_IN",
+  SOURCE_NATURE_IN: "SOURCE_NATURE_IN",
+  TARGET_CARD_TYPE_IN: "TARGET_CARD_TYPE_IN",
+  SOURCE_CARD_TYPE_IN: "SOURCE_CARD_TYPE_IN",
   TARGET_IS_DAMAGED: "TARGET_IS_DAMAGED",
   SELF_HAS_ENERGY_TYPE: "SELF_HAS_ENERGY_TYPE",
   SELF_ENERGY_COUNT_GTE: "SELF_ENERGY_COUNT_GTE",
+  TARGET_ENERGY_COUNT_GTE: "TARGET_ENERGY_COUNT_GTE",
+  BENCH_HAS_CARD_NAME: "BENCH_HAS_CARD_NAME",
+  BENCH_HAS_NATURE: "BENCH_HAS_NATURE",
+  HAS_EQUIPMENT: "HAS_EQUIPMENT",
+  DAMAGE_AMOUNT_GTE: "DAMAGE_AMOUNT_GTE",
+  WOULD_BE_KNOCKED_OUT: "WOULD_BE_KNOCKED_OUT",
+  ONCE_PER_TURN: "ONCE_PER_TURN",
+  SOURCE_META_VALUE_IN: "SOURCE_META_VALUE_IN",
+  TARGET_META_VALUE_IN: "TARGET_META_VALUE_IN",
 };
 
 export const ABILITY_CONDITION_LABELS = {
   [ABILITY_CONDITION_TYPES.SOURCE_POSITION]: "Posicao da fonte",
   [ABILITY_CONDITION_TYPES.TARGET_POSITION]: "Posicao do alvo",
   [ABILITY_CONDITION_TYPES.TARGET_NATURE_IN]: "Natureza do alvo esta em",
+  [ABILITY_CONDITION_TYPES.SOURCE_NATURE_IN]: "Natureza da fonte esta em",
+  [ABILITY_CONDITION_TYPES.TARGET_CARD_TYPE_IN]: "Tipo da carta alvo esta em",
+  [ABILITY_CONDITION_TYPES.SOURCE_CARD_TYPE_IN]: "Tipo da carta fonte esta em",
   [ABILITY_CONDITION_TYPES.TARGET_IS_DAMAGED]: "Alvo esta ferido",
   [ABILITY_CONDITION_TYPES.SELF_HAS_ENERGY_TYPE]: "Fonte tem energia",
   [ABILITY_CONDITION_TYPES.SELF_ENERGY_COUNT_GTE]: "Fonte tem energia minima",
+  [ABILITY_CONDITION_TYPES.TARGET_ENERGY_COUNT_GTE]: "Alvo tem energia minima",
+  [ABILITY_CONDITION_TYPES.BENCH_HAS_CARD_NAME]: "Banco tem carta pelo nome",
+  [ABILITY_CONDITION_TYPES.BENCH_HAS_NATURE]: "Banco tem natureza",
+  [ABILITY_CONDITION_TYPES.HAS_EQUIPMENT]: "Tem equipamento",
+  [ABILITY_CONDITION_TYPES.DAMAGE_AMOUNT_GTE]: "Dano minimo",
+  [ABILITY_CONDITION_TYPES.WOULD_BE_KNOCKED_OUT]: "Seria nocauteado",
+  [ABILITY_CONDITION_TYPES.ONCE_PER_TURN]: "Uma vez por turno",
+  [ABILITY_CONDITION_TYPES.SOURCE_META_VALUE_IN]: "Meta da fonte contem",
+  [ABILITY_CONDITION_TYPES.TARGET_META_VALUE_IN]: "Meta do alvo contem",
 };
+
+export const CARD_META_AGES = {
+  CRIANCA: "CRIANCA",
+  JOVEM: "JOVEM",
+  ADULTO: "ADULTO",
+  VELHO: "VELHO",
+};
+
+export const CARD_META_AGE_LABELS = {
+  [CARD_META_AGES.CRIANCA]: "Crianca",
+  [CARD_META_AGES.JOVEM]: "Jovem",
+  [CARD_META_AGES.ADULTO]: "Adulto",
+  [CARD_META_AGES.VELHO]: "Velho",
+};
+
+export const COMMON_META_ELEMENTS = ["AGUA", "FOGO", "GELO", "TERRA", "VENTO", "RAIO", "LUZ", "SOMBRA"];
+export const COMMON_META_WEAPONS = ["ESPADA", "VARINHA", "PISTOLA", "ARCO", "LANCA", "ESCUDO", "KUNAI", "BASTAO"];
+export const COMMON_META_STYLES = ["LOGIA", "MAGIA", "TECNOLOGIA", "NINJUTSU", "TAIJUTSU", "ESPIRITUAL", "MARCIAL"];
+export const CARD_META_KEYS = ["age", "elements", "weapon", "style", "tags"];
 
 export const ABILITY_POSITION_VALUES = {
   ACTIVE: "ACTIVE",
@@ -456,6 +537,10 @@ export const abilityConditionValueLabel = condition => {
     const values = Array.isArray(value) ? value : [value];
     return values.filter(Boolean).map(abilityPositionLabel).join(", ");
   }
+  if (condition.type === ABILITY_CONDITION_TYPES.SOURCE_META_VALUE_IN || condition.type === ABILITY_CONDITION_TYPES.TARGET_META_VALUE_IN) {
+    const values = Array.isArray(value?.values) ? value.values.join(", ") : "";
+    return value?.key ? `${value.key}: ${values}` : values;
+  }
   return Array.isArray(value) ? value.join(", ") : value;
 };
 
@@ -463,21 +548,105 @@ export const EFFECT_TYPE_OPTIONS = Object.values(EFFECT_TYPES)
   .map(value => ({ value, label: effectTypeLabel(value) }))
   .sort((a, b) => a.label.localeCompare(b.label, "pt-BR", { sensitivity: "base" }));
 
+const normalizeStringList = value => {
+  if (Array.isArray(value)) return value.map(item => String(item).trim()).filter(Boolean);
+  if (typeof value === "string") return value.split(",").map(item => item.trim()).filter(Boolean);
+  return [];
+};
+
+export const normalizeCardMeta = meta => ({
+  age: String(meta?.age || "").trim(),
+  elements: normalizeStringList(meta?.elements),
+  weapon: String(meta?.weapon || "").trim(),
+  style: String(meta?.style || "").trim(),
+  tags: normalizeStringList(meta?.tags),
+});
+
+export const advancedEffectExtraFields = {
+  hits: 0,
+  count: 0,
+  random_targets_count: 0,
+  split_mode: "",
+  allow_manual_target: false,
+  natures: [],
+  tags: [],
+  per_count: false,
+  per_energy_amount: 0,
+  energy_owner: "",
+  discard_amount: 0,
+  random: false,
+  dice_threshold: 0,
+  comparison: "",
+  success_effects: [],
+  fail_effects: [],
+  roll_count_source: "",
+  success_amount: 0,
+  damage_type: "",
+  applies_to: "",
+  absorb_hp: false,
+  absorb_damage: false,
+  absorb_energy: false,
+  keep_negative_effects: false,
+  temporary_hp: 0,
+  filter_type: "",
+  card_type: "",
+  stack_key: "",
+  reset_on_miss: false,
+  applies_to_tag: "",
+  applies_to_nature: "",
+  meta_key: "",
+  meta_value: "",
+};
+
 export const normalizeEffects = effects => (
   Array.isArray(effects)
     ? effects
         .filter(effect => effect?.type)
         .map(effect => ({
+          ...advancedEffectExtraFields,
           type: effect.type,
-          target: effect.target || TARGETS.OPPONENT_ACTIVE,
+          target: effect.target || "",
           duration: effect.duration || DURATIONS.INSTANT,
           amount: Math.max(0, parseInt(effect.amount, 10) || 0),
           attribute: effect.attribute || "",
           energy_type: effect.energy_type || "",
           nature: effect.nature || "",
+          natures: normalizeStringList(effect.natures),
           card_name: effect.card_name || "",
           tag: effect.tag || "",
+          tags: normalizeStringList(effect.tags),
           condition: effect.condition || "",
+          hits: Math.max(0, parseInt(effect.hits, 10) || 0),
+          count: Math.max(0, parseInt(effect.count, 10) || 0),
+          random_targets_count: Math.max(0, parseInt(effect.random_targets_count, 10) || 0),
+          split_mode: effect.split_mode || "",
+          allow_manual_target: Boolean(effect.allow_manual_target),
+          per_count: Boolean(effect.per_count),
+          per_energy_amount: Math.max(0, parseInt(effect.per_energy_amount, 10) || 0),
+          energy_owner: effect.energy_owner || "",
+          discard_amount: Math.max(0, parseInt(effect.discard_amount, 10) || 0),
+          random: Boolean(effect.random),
+          dice_threshold: Math.max(0, parseInt(effect.dice_threshold, 10) || 0),
+          comparison: effect.comparison || "",
+          success_effects: normalizeEffects(effect.success_effects),
+          fail_effects: normalizeEffects(effect.fail_effects),
+          roll_count_source: effect.roll_count_source || "",
+          success_amount: Math.max(0, parseInt(effect.success_amount, 10) || 0),
+          damage_type: effect.damage_type || "",
+          applies_to: effect.applies_to || "",
+          absorb_hp: Boolean(effect.absorb_hp),
+          absorb_damage: Boolean(effect.absorb_damage),
+          absorb_energy: Boolean(effect.absorb_energy),
+          keep_negative_effects: Boolean(effect.keep_negative_effects),
+          temporary_hp: Math.max(0, parseInt(effect.temporary_hp, 10) || 0),
+          filter_type: effect.filter_type || "",
+          card_type: effect.card_type || "",
+          stack_key: effect.stack_key || "",
+          reset_on_miss: Boolean(effect.reset_on_miss),
+          applies_to_tag: effect.applies_to_tag || "",
+          applies_to_nature: effect.applies_to_nature || "",
+          meta_key: effect.meta_key || "",
+          meta_value: effect.meta_value || "",
         }))
     : []
 );
@@ -517,6 +686,10 @@ export const effectSummary = effect => {
     effect.attribute,
     effect.card_name,
     effect.tag,
+    Array.isArray(effect.natures) ? effect.natures.join(", ") : "",
+    Array.isArray(effect.tags) ? effect.tags.join(", ") : "",
+    effect.card_type,
+    effect.meta_key && effect.meta_value ? `${effect.meta_key}: ${effect.meta_value}` : "",
   ].filter(Boolean);
   const extra = details.length ? ` | ${details.join(" / ")}` : "";
   return `${type}${amount} - ${target}${duration}${condition}${extra}`;
