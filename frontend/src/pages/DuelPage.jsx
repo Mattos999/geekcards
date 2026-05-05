@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { api, formatApiError, imageUrl } from "../lib/api";
 import { NATURE_COLORS } from "../lib/natures";
 import { EnergyCostSymbols } from "../components/EnergyCostSymbols";
@@ -257,7 +258,7 @@ const DuelMomentPanel = ({ state, player, opponent, canEndTurn, onEndTurn }) => 
   );
 };
 
-const SetupPanel = ({ title, player, side, onAction, onCardClick }) => (
+const SetupPanel = ({ title, player, side, onAction, onCardClick, disabled = false }) => (
   <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-4">
     <div className="mb-3 flex items-center justify-between">
       <h3 className="text-sm font-bold">{title}</h3>
@@ -278,8 +279,14 @@ const SetupPanel = ({ title, player, side, onAction, onCardClick }) => (
               {player.bench[index] && (
                 <button
                   type="button"
-                  onClick={() => onAction(state => setupBenchToHand(state, side, index))}
-                  className="w-full rounded bg-slate-800 px-1 py-0.5 text-[10px] text-slate-300"
+                  onClick={() => onAction({
+                    kind: "setup_bench_to_hand",
+                    side,
+                    benchIndex: index,
+                    localAction: state => setupBenchToHand(state, side, index),
+                  })}
+                  disabled={disabled}
+                  className="w-full rounded bg-slate-800 px-1 py-0.5 text-[10px] text-slate-300 disabled:opacity-40"
                 >
                   Remover
                 </button>
@@ -302,16 +309,26 @@ const SetupPanel = ({ title, player, side, onAction, onCardClick }) => (
                 <div className="grid gap-1">
                   <button
                     type="button"
-                    onClick={() => onAction(state => setupActive(state, side, index))}
-                    disabled={!isBasic}
+                    onClick={() => onAction({
+                      kind: "setup_active",
+                      side,
+                      handIndex: index,
+                      localAction: state => setupActive(state, side, index),
+                    })}
+                    disabled={disabled || !isBasic}
                     className="min-h-7 rounded bg-emerald-500/15 px-2 py-1 text-[10px] text-emerald-200 disabled:opacity-35"
                   >
                     Ativa
                   </button>
                   <button
                     type="button"
-                    onClick={() => onAction(state => setupToBench(state, side, index))}
-                    disabled={!isBasic || player.bench.length >= DUEL_RULES.BENCH_LIMIT}
+                    onClick={() => onAction({
+                      kind: "setup_to_bench",
+                      side,
+                      handIndex: index,
+                      localAction: state => setupToBench(state, side, index),
+                    })}
+                    disabled={disabled || !isBasic || player.bench.length >= DUEL_RULES.BENCH_LIMIT}
                     className="min-h-7 rounded bg-indigo-500/15 px-2 py-1 text-[10px] text-indigo-200 disabled:opacity-35"
                   >
                     Banco
@@ -369,14 +386,34 @@ const setDragData = (event, payload) => {
 };
 
 export default function DuelPage() {
+  const location = useLocation();
   const [decks, setDecks] = useState([]);
   const [playerDeckId, setPlayerDeckId] = useState("");
   const [opponentDeckId, setOpponentDeckId] = useState("");
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
   const [duel, setDuel] = useState(null);
+  const [duelEntryMode, setDuelEntryMode] = useState("");
+  const [duelMode, setDuelMode] = useState("local");
+  const [onlinePlayers, setOnlinePlayers] = useState([]);
+  const [onlineDuels, setOnlineDuels] = useState([]);
+  const [onlineDuel, setOnlineDuel] = useState(null);
+  const [requestedOnlineDuelId, setRequestedOnlineDuelId] = useState("");
+  const [onlineOpponentId, setOnlineOpponentId] = useState("");
+  const [onlineLoading, setOnlineLoading] = useState(false);
   const [retreatChoosing, setRetreatChoosing] = useState(false);
   const [detailCard, setDetailCard] = useState(null);
+  const onlineDuelId = onlineDuel?.id;
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const duelId = params.get("online");
+    if (duelId !== null) {
+      setDuelEntryMode("online");
+      setDuelMode("online");
+      setRequestedOnlineDuelId(duelId);
+    }
+  }, [location.search]);
 
   useEffect(() => {
     (async () => {
@@ -392,6 +429,41 @@ export default function DuelPage() {
       }
     })();
   }, []);
+
+  const refreshOnlineDuelData = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setOnlineLoading(true);
+    try {
+      const [playersRes, duelsRes] = await Promise.all([
+        api.get("/duels/online/players"),
+        api.get("/duels/online"),
+      ]);
+      setOnlinePlayers(playersRes.data || []);
+      setOnlineDuels(duelsRes.data || []);
+      setOnlineOpponentId(current => current || playersRes.data?.find(player => !player.in_duel)?.id || "");
+
+      const currentOnlineId = onlineDuelId || requestedOnlineDuelId;
+      const activeOnlineDuel = currentOnlineId
+        ? duelsRes.data?.find(item => item.id === currentOnlineId)
+        : duelsRes.data?.find(item => item.state);
+
+      if (activeOnlineDuel) {
+        setOnlineDuel(activeOnlineDuel);
+        setDuelMode("online");
+        setDuelEntryMode("online");
+        if (activeOnlineDuel.state) setDuel(activeOnlineDuel.state);
+      }
+    } catch (e) {
+      if (!silent) toast.error(formatApiError(e));
+    } finally {
+      if (!silent) setOnlineLoading(false);
+    }
+  }, [onlineDuelId, requestedOnlineDuelId]);
+
+  useEffect(() => {
+    refreshOnlineDuelData({ silent: true });
+    const interval = window.setInterval(() => refreshOnlineDuelData({ silent: true }), onlineDuelId ? 2500 : 6000);
+    return () => window.clearInterval(interval);
+  }, [onlineDuelId, refreshOnlineDuelData]);
 
   const startDuel = async () => {
     if (!playerDeckId) {
@@ -422,6 +494,9 @@ export default function DuelPage() {
         playerRes.data.deck.energy_types,
         opponentRes.data.deck.energy_types
       ));
+      setDuelMode("local");
+      setDuelEntryMode("bot");
+      setOnlineDuel(null);
     } catch (e) {
       toast.error(formatApiError(e));
     } finally {
@@ -429,12 +504,111 @@ export default function DuelPage() {
     }
   };
 
+  const setOnlineDuelView = data => {
+    setOnlineDuel(data);
+    setDuelMode("online");
+    setDuelEntryMode("online");
+    if (data?.state) setDuel(data.state);
+    refreshOnlineDuelData({ silent: true });
+  };
+
+  const inviteOnlineDuel = async (opponentId = onlineOpponentId) => {
+    if (!opponentId) {
+      toast.error("Escolha um jogador online");
+      return;
+    }
+    setOnlineLoading(true);
+    try {
+      const { data } = await api.post("/duels/online/invite", { opponent_id: opponentId });
+      setOnlineDuelView(data);
+      toast.success("Convite enviado");
+    } catch (e) {
+      toast.error(formatApiError(e));
+    } finally {
+      setOnlineLoading(false);
+    }
+  };
+
+  const acceptOnlineDuel = async duelId => {
+    setOnlineLoading(true);
+    try {
+      const { data } = await api.post(`/duels/online/${duelId}/accept`);
+      setOnlineDuelView(data);
+    } catch (e) {
+      toast.error(formatApiError(e));
+    } finally {
+      setOnlineLoading(false);
+    }
+  };
+
+  const declineOnlineDuel = async duelId => {
+    setOnlineLoading(true);
+    try {
+      await api.post(`/duels/online/${duelId}/decline`);
+      if (onlineDuel?.id === duelId) {
+        setOnlineDuel(null);
+        setDuel(null);
+      }
+      refreshOnlineDuelData();
+    } catch (e) {
+      toast.error(formatApiError(e));
+    } finally {
+      setOnlineLoading(false);
+    }
+  };
+
+  const chooseOnlineDeck = async duelId => {
+    if (!playerDeckId) {
+      toast.error("Escolha um deck");
+      return;
+    }
+    setOnlineLoading(true);
+    try {
+      const { data } = await api.post(`/duels/online/${duelId}/deck`, { deck_id: playerDeckId });
+      setOnlineDuelView(data);
+      toast.success(data.state ? "Deck confirmado" : "Deck escolhido. Aguardando oponente.");
+    } catch (e) {
+      toast.error(formatApiError(e));
+    } finally {
+      setOnlineLoading(false);
+    }
+  };
+
+  const confirmOnlineSetup = async () => {
+    if (!onlineDuel?.id) return;
+    setOnlineLoading(true);
+    try {
+      const { data } = await api.post(`/duels/online/${onlineDuel.id}/setup-ready`, { ready: true });
+      setOnlineDuelView(data);
+      toast.success(data.status === "battle" ? "Duelo iniciado" : "Preparacao confirmada. Aguardando oponente.");
+    } catch (e) {
+      toast.error(formatApiError(e));
+    } finally {
+      setOnlineLoading(false);
+    }
+  };
+
+  const sendOnlineAction = async body => {
+    if (!onlineDuel?.id) return;
+    setOnlineLoading(true);
+    try {
+      const { data } = await api.post(`/duels/online/${onlineDuel.id}/action`, body);
+      setOnlineDuelView(data);
+    } catch (e) {
+      toast.error(formatApiError(e));
+    } finally {
+      setOnlineLoading(false);
+    }
+  };
+
   const player = duel?.players.player;
   const opponent = duel?.players.opponent;
   const isSetup = duel?.phase === "setup";
+  const isOnlineDuel = duelMode === "online" && Boolean(onlineDuel);
+  const playerDeckCount = player?.deck?.length ?? player?.deck_count ?? 0;
   const isPlayerTurn = duel?.turn === "player" && !duel?.winner;
-  const canPlayerDraw = Boolean(isPlayerTurn && !player?.drew_this_turn && (player?.deck?.length || 0) > 0);
-  const canPlayerAct = Boolean(isPlayerTurn && (player?.drew_this_turn || (player?.deck?.length || 0) === 0));
+  const canPlayerDraw = Boolean(isPlayerTurn && !player?.drew_this_turn && playerDeckCount > 0);
+  const canPlayerAct = Boolean(isPlayerTurn && (player?.drew_this_turn || playerDeckCount === 0));
   const activeRetreatCost = Math.max(0, parseInt(player?.active?.recuo, 10) || 0);
   const canPlayerRetreat = Boolean(
     canPlayerAct &&
@@ -451,8 +625,29 @@ export default function DuelPage() {
     });
   };
 
+  const applyDuelAction = (localAction, onlineAction) => {
+    if (isOnlineDuel) {
+      sendOnlineAction(onlineAction);
+      return;
+    }
+    applyAndBot(localAction);
+  };
+
   const applySetup = action => {
-    setDuel(current => current ? action(current) : current);
+    if (isOnlineDuel) {
+      if (action.side !== "player") return;
+      if (player?.setup_ready) {
+        toast.info("Sua preparacao ja foi confirmada.");
+        return;
+      }
+      sendOnlineAction({
+        kind: action.kind,
+        hand_index: action.handIndex,
+        bench_index: action.benchIndex,
+      });
+      return;
+    }
+    setDuel(current => current ? action.localAction(current) : current);
   };
 
   const playableHand = useMemo(() => {
@@ -470,7 +665,10 @@ export default function DuelPage() {
     if (!payload.source || !canPlayerAct) return;
 
     if (payload.source === "energy") {
-      applyAndBot(state => attachEnergy(state, "player", zone, targetIndex));
+      applyDuelAction(
+        state => attachEnergy(state, "player", zone, targetIndex),
+        { kind: "attach_energy", zone, target_index: targetIndex }
+      );
       return;
     }
 
@@ -480,19 +678,30 @@ export default function DuelPage() {
     if (!card) return;
 
     if (zone === "bench" && card.card_type === "Personagem" && !card.is_evolution) {
-      applyAndBot(state => playToBench(state, "player", handIndex));
+      applyDuelAction(
+        state => playToBench(state, "player", handIndex),
+        { kind: "play_to_bench", hand_index: handIndex }
+      );
       return;
     }
 
     if (card.is_evolution) {
       const canEvolveHere = findEvolutionTargets(duel, "player", handIndex)
         .some(target => target.zone === zone && target.index === targetIndex);
-      if (canEvolveHere) applyAndBot(state => evolveFromHand(state, "player", handIndex, zone, targetIndex));
+      if (canEvolveHere) {
+        applyDuelAction(
+          state => evolveFromHand(state, "player", handIndex, zone, targetIndex),
+          { kind: "evolve", hand_index: handIndex, zone, target_index: targetIndex }
+        );
+      }
       return;
     }
 
     if (zone === "active" && card.card_type !== "Personagem" && card.card_type !== "Energia") {
-      applyAndBot(state => playActionCard(state, "player", handIndex));
+      applyDuelAction(
+        state => playActionCard(state, "player", handIndex),
+        { kind: "play_action", hand_index: handIndex, zone, target_index: targetIndex }
+      );
     }
   };
 
@@ -502,42 +711,194 @@ export default function DuelPage() {
 
   return (
     <div className="p-6 max-w-[1680px] mx-auto">
-      <div className={`${duel ? "hidden" : "mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"}`}>
-        <div>
-          <div className="text-sm uppercase tracking-[0.2em] text-indigo-400 mb-1 flex items-center gap-2">
-            <Sword size={14} />
-            Duelo
+      <div className={`${duel ? "hidden" : "mb-6 space-y-4"}`}>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="mb-1 flex items-center gap-2 text-sm uppercase tracking-[0.2em] text-indigo-400">
+              <Sword size={14} />
+              Duelo
+            </div>
+            <h1 className="text-4xl font-bold" style={{ fontFamily: "Outfit" }}>Arena GeekCards</h1>
           </div>
-          <h1 className="text-4xl font-bold" style={{ fontFamily: "Outfit" }}>Arena GeekCards</h1>
+          {duelEntryMode && (
+            <button
+              type="button"
+              onClick={() => {
+                setDuelEntryMode("");
+                setOnlineDuel(null);
+                setDuel(null);
+              }}
+              className="self-start rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300 hover:border-indigo-400/50 lg:self-auto"
+            >
+              Trocar modo
+            </button>
+          )}
         </div>
 
-        <div className="glass flex flex-wrap items-end gap-3 rounded-xl p-3">
-          <div>
-            <label className="mb-1 block text-xs text-slate-500">Seu deck</label>
-            <select value={playerDeckId} onChange={event => setPlayerDeckId(event.target.value)}
-              className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm">
-              {decks.map(deck => <option key={deck.id} value={deck.id}>{deck.name}</option>)}
-            </select>
+        {!duelEntryMode && (
+          <div className="grid gap-4 lg:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setDuelEntryMode("bot")}
+              className="glass group rounded-2xl border border-indigo-400/25 p-6 text-left transition hover:border-indigo-300/60 hover:bg-indigo-500/10"
+            >
+              <div className="mb-3 inline-flex rounded-xl border border-indigo-400/25 bg-indigo-500/10 p-3 text-indigo-200">
+                <Bot size={24} />
+              </div>
+              <h2 className="text-2xl font-black text-slate-100">Duelo contra bot</h2>
+              <p className="mt-2 text-sm text-slate-400">Escolha seu deck, escolha o deck do bot e jogue imediatamente.</p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setDuelEntryMode("online");
+                refreshOnlineDuelData();
+              }}
+              className="glass group rounded-2xl border border-cyan-400/25 p-6 text-left transition hover:border-cyan-300/60 hover:bg-cyan-500/10"
+            >
+              <div className="mb-3 inline-flex rounded-xl border border-cyan-400/25 bg-cyan-500/10 p-3 text-cyan-200">
+                <Sparkles size={24} />
+              </div>
+              <h2 className="text-2xl font-black text-slate-100">Duelo online</h2>
+              <p className="mt-2 text-sm text-slate-400">Veja jogadores online, envie convite e jogue com preparação simultânea.</p>
+            </button>
           </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-500">Oponente</label>
-            <select value={opponentDeckId} onChange={event => setOpponentDeckId(event.target.value)}
-              className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm">
-              {decks.map(deck => <option key={deck.id} value={deck.id}>{deck.name}</option>)}
-            </select>
+        )}
+
+        {duelEntryMode === "bot" && (
+          <div className="glass flex flex-wrap items-end gap-3 rounded-xl p-4">
+            <div>
+              <label className="mb-1 block text-xs text-slate-500">Seu deck</label>
+              <select value={playerDeckId} onChange={event => setPlayerDeckId(event.target.value)}
+                className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm">
+                {decks.map(deck => <option key={deck.id} value={deck.id}>{deck.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-slate-500">Deck do bot</label>
+              <select value={opponentDeckId} onChange={event => setOpponentDeckId(event.target.value)}
+                className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm">
+                {decks.map(deck => <option key={deck.id} value={deck.id}>{deck.name}</option>)}
+              </select>
+            </div>
+            <button onClick={startDuel} disabled={starting || decks.length === 0}
+              className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium hover:bg-indigo-500 disabled:opacity-50">
+              {starting ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+              Iniciar contra bot
+            </button>
           </div>
-          <button onClick={startDuel} disabled={starting || decks.length === 0}
-            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium hover:bg-indigo-500 disabled:opacity-50">
-            {starting ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
-            Iniciar
-          </button>
-        </div>
+        )}
+
+        {duelEntryMode === "online" && (
+          <div className="glass rounded-xl p-4">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-black text-slate-100">Jogadores online</h2>
+                <p className="text-sm text-slate-400">Convide jogadores disponiveis ou continue um convite em andamento.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => refreshOnlineDuelData()}
+                disabled={onlineLoading}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300 hover:border-indigo-400/50 disabled:opacity-50"
+              >
+                {onlineLoading && <Loader2 size={14} className="animate-spin" />}
+                Atualizar
+              </button>
+            </div>
+
+            {onlineDuels.length > 0 && (
+              <div className="mb-4 space-y-2 rounded-xl border border-indigo-400/20 bg-indigo-950/10 p-3">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-indigo-200/60">Seus convites e duelos</div>
+                {onlineDuels.map(item => {
+                  const needsDeck = item.status === "deck_selection" && !item.me?.deck_id;
+                  const waitingOpponentDeck = item.status === "deck_selection" && item.me?.deck_id;
+                  const statusText = item.status === "invited"
+                    ? "Convite pendente"
+                    : item.status === "deck_selection"
+                      ? waitingOpponentDeck ? "Voce preparou o deck. Aguardando oponente." : "Escolha seu deck"
+                      : item.status === "setup"
+                        ? "Preparacao das cartas iniciais"
+                        : "Em duelo";
+                  return (
+                    <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-950/55 px-3 py-2 text-xs">
+                      <div>
+                        <div className="font-bold text-slate-100">{item.opponent?.name || "Oponente"}</div>
+                        <div className="text-slate-500">{statusText}</div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {item.status === "invited" && item.invitee_id === item.me?.user_id && (
+                          <button type="button" onClick={() => acceptOnlineDuel(item.id)} className="rounded bg-emerald-500/15 px-2 py-1 text-emerald-100">Aceitar</button>
+                        )}
+                        {needsDeck && (
+                          <>
+                            <select value={playerDeckId} onChange={event => setPlayerDeckId(event.target.value)} className="rounded border border-slate-800 bg-slate-950 px-2 py-1 text-slate-200">
+                              {decks.map(deck => <option key={deck.id} value={deck.id}>{deck.name}</option>)}
+                            </select>
+                            <button type="button" onClick={() => chooseOnlineDeck(item.id)} className="rounded bg-indigo-500/20 px-2 py-1 text-indigo-100">Preparado</button>
+                          </>
+                        )}
+                        {item.state && (
+                          <button type="button" onClick={() => setOnlineDuelView(item)} className="rounded bg-cyan-500/15 px-2 py-1 text-cyan-100">Abrir</button>
+                        )}
+                        {["invited", "deck_selection", "setup"].includes(item.status) && (
+                          <button type="button" onClick={() => declineOnlineDuel(item.id)} className="rounded bg-rose-500/15 px-2 py-1 text-rose-100">Cancelar duelo</button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="grid gap-2">
+              {onlinePlayers.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-slate-800 bg-slate-950/40 p-6 text-center text-sm text-slate-500">
+                  Nenhum jogador online disponivel agora.
+                </div>
+              ) : onlinePlayers.map(onlinePlayer => {
+                const relatedDuel = onlineDuels.find(item => item.opponent?.user_id === onlinePlayer.id);
+                const busy = onlinePlayer.in_duel && !relatedDuel;
+                return (
+                  <div key={onlinePlayer.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950/55 px-3 py-2">
+                    <div>
+                      <div className="text-sm font-bold text-slate-100">{onlinePlayer.name || onlinePlayer.email}</div>
+                      <div className={`text-xs ${busy ? "text-rose-300" : relatedDuel ? "text-indigo-300" : "text-emerald-300"}`}>
+                        {busy ? "Em duelo" : relatedDuel ? "Convite ou duelo em andamento" : "Online"}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => inviteOnlineDuel(onlinePlayer.id)}
+                      disabled={onlineLoading || busy || Boolean(relatedDuel)}
+                      className="rounded-lg border border-cyan-400/35 bg-cyan-500/15 px-3 py-2 text-sm font-medium text-cyan-100 hover:bg-cyan-500/25 disabled:opacity-40"
+                    >
+                      Convidar
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {!duel ? (
         <div className="glass rounded-xl p-12 text-center">
           <Shield className="mx-auto mb-3 text-slate-600" size={34} />
-          <p className="text-slate-400">Escolha os decks e inicie um duelo local.</p>
+          <p className="text-slate-400">
+            {!duelEntryMode
+              ? "Escolha duelo contra bot ou duelo online."
+              : duelEntryMode === "bot"
+                ? "Escolha os decks para iniciar contra o bot."
+                : "Convide um jogador online ou continue um duelo pendente."}
+          </p>
+          {onlineDuel && !onlineDuel.state && (
+            <div className="mt-4 rounded-lg border border-indigo-400/25 bg-indigo-500/10 p-3 text-sm text-indigo-100">
+              Duelo online com {onlineDuel.opponent?.name || "oponente"}: {onlineDuel.status === "invited" ? "aguardando aceite" : "aguardando escolha de decks"}.
+            </div>
+          )}
         </div>
       ) : isSetup ? (
         <div className="glass rounded-xl p-5">
@@ -545,22 +906,60 @@ export default function DuelPage() {
             <div>
               <h2 className="text-xl font-bold">Preparacao inicial</h2>
               <p className="mt-1 text-sm text-slate-400">
-                Escolha uma carta basica ativa e, se quiser, ate 3 cartas basicas para o banco de cada lado.
+                {isOnlineDuel
+                  ? "Escolha sua ativa e ate 3 cartas para o banco. As escolhas do oponente ficam ocultas ate os dois confirmarem."
+                  : "Escolha uma carta basica ativa e, se quiser, ate 3 cartas basicas para o banco de cada lado."}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setDuel(current => current ? finishSetup(current) : current)}
-              disabled={!player.active || !opponent.active}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium hover:bg-indigo-500 disabled:opacity-40"
-            >
-              <Play size={14} /> Comecar duelo
-            </button>
+            <div className="flex flex-wrap gap-2">
+              {isOnlineDuel && (
+                <button
+                  type="button"
+                  onClick={() => declineOnlineDuel(onlineDuel.id)}
+                  disabled={onlineLoading}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-rose-500/35 bg-rose-950/40 px-4 py-2 text-sm font-medium text-rose-100 hover:bg-rose-900/60 disabled:opacity-40"
+                >
+                  Cancelar duelo
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  if (isOnlineDuel) {
+                    confirmOnlineSetup();
+                    return;
+                  }
+                  setDuel(current => current ? finishSetup(current) : current);
+                }}
+                disabled={onlineLoading || !player.active || (!isOnlineDuel && !opponent.active) || (isOnlineDuel && player.setup_ready)}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium hover:bg-indigo-500 disabled:opacity-40"
+              >
+                <Play size={14} /> {isOnlineDuel ? (player.setup_ready ? "Aguardando oponente" : "Confirmar preparacao") : "Comecar duelo"}
+              </button>
+            </div>
           </div>
 
           <div className="grid gap-4 xl:grid-cols-2">
-            <SetupPanel title="Voce" player={player} side="player" onAction={applySetup} onCardClick={setDetailCard} />
-            <SetupPanel title="Oponente" player={opponent} side="opponent" onAction={applySetup} onCardClick={setDetailCard} />
+            <SetupPanel title="Voce" player={player} side="player" onAction={applySetup} onCardClick={setDetailCard} disabled={isOnlineDuel && player.setup_ready} />
+            {isOnlineDuel ? (
+              <div className="rounded-xl border border-rose-400/25 bg-slate-950/45 p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-rose-100">Oponente</h3>
+                  <span className={`rounded border px-2 py-1 text-xs ${opponent.setup_ready ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200" : "border-rose-500/30 bg-rose-500/10 text-rose-200"}`}>
+                    {opponent.setup_ready ? "Preparado" : "Escolhendo"}
+                  </span>
+                </div>
+                <div className="flex min-h-[430px] flex-col items-center justify-center rounded-lg border border-dashed border-slate-800 bg-slate-950/40 p-6 text-center">
+                  <Bot className="mb-3 text-rose-300/70" size={34} />
+                  <div className="text-sm font-bold text-slate-200">Campo oculto</div>
+                  <p className="mt-2 max-w-sm text-sm text-slate-500">
+                    As cartas escolhidas pelo oponente serao reveladas somente depois que os dois confirmarem a preparacao.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <SetupPanel title="Oponente" player={opponent} side="opponent" onAction={applySetup} onCardClick={setDetailCard} />
+            )}
           </div>
         </div>
       ) : (
@@ -592,7 +991,7 @@ export default function DuelPage() {
                 player={player}
                 opponent={opponent}
                 canEndTurn={canPlayerAct}
-                onEndTurn={() => applyAndBot(endTurn)}
+                onEndTurn={() => applyDuelAction(endTurn, { kind: "end_turn" })}
               />
 
               <section className="rounded-2xl border border-indigo-400/35 bg-slate-950/35 p-4 shadow-xl shadow-indigo-500/10">
@@ -609,10 +1008,28 @@ export default function DuelPage() {
                       <>
                         <div className="flex flex-wrap gap-1">
                           <button type="button" onClick={() => setRetreatChoosing(true)} disabled={!canPlayerRetreat} className="inline-flex items-center gap-1 rounded-lg border border-indigo-400/25 bg-slate-950/70 px-2 py-1 text-[10px] text-slate-300 disabled:opacity-40"><RotateCcw size={11} /> Recuar</button>
-                          <button type="button" onClick={() => applyAndBot(state => attachEnergy(state, "player", "active", 0))} disabled={!canPlayerAct || player.energy_remaining <= 0} className="inline-flex items-center gap-1 rounded-lg border border-yellow-400/35 bg-yellow-400/10 px-2 py-1 text-[10px] text-yellow-100 disabled:opacity-40">Energia</button>
+                          <button
+                            type="button"
+                            onClick={() => applyDuelAction(
+                              state => attachEnergy(state, "player", "active", 0),
+                              { kind: "attach_energy", zone: "active", target_index: 0 }
+                            )}
+                            disabled={!canPlayerAct || player.energy_remaining <= 0}
+                            className="inline-flex items-center gap-1 rounded-lg border border-yellow-400/35 bg-yellow-400/10 px-2 py-1 text-[10px] text-yellow-100 disabled:opacity-40"
+                          >
+                            Energia
+                          </button>
                         </div>
                         {(player.active.abilities || []).map((ability, index) => (
-                          <button key={index} onClick={() => applyAndBot(state => activateAbility(state, "player", index))} disabled={!canPayAbility(player.active, ability) || !canAttackThisTurn(duel, "player", index)} className="flex w-full items-center justify-between gap-2 rounded-lg border border-indigo-400/25 bg-slate-950/70 px-2 py-1 text-left text-[10px] text-slate-200 disabled:opacity-40">
+                          <button
+                            key={index}
+                            onClick={() => applyDuelAction(
+                              state => activateAbility(state, "player", index),
+                              { kind: "ability", ability_index: index, zone: "active", target_index: 0 }
+                            )}
+                            disabled={!canPayAbility(player.active, ability) || !canAttackThisTurn(duel, "player", index)}
+                            className="flex w-full items-center justify-between gap-2 rounded-lg border border-indigo-400/25 bg-slate-950/70 px-2 py-1 text-left text-[10px] text-slate-200 disabled:opacity-40"
+                          >
                             <span className="truncate">{ability.name}</span>
                             <span className="flex items-center gap-1 font-mono text-rose-300">
                               {abilityDamage(ability)}
@@ -631,13 +1048,24 @@ export default function DuelPage() {
                     childrenForCard={(card, index) => (
                       <div className="grid gap-1">
                         {isPlayerTurn && !player.active && (
-                          <button onClick={() => applyAndBot(state => promoteFromBench(state, "player", index))} className="rounded bg-emerald-500/15 px-1 py-0.5 text-[9px] text-emerald-100">Promover</button>
+                          <button
+                            onClick={() => applyDuelAction(
+                              state => promoteFromBench(state, "player", index),
+                              { kind: "promote", bench_index: index }
+                            )}
+                            className="rounded bg-emerald-500/15 px-1 py-0.5 text-[9px] text-emerald-100"
+                          >
+                            Promover
+                          </button>
                         )}
                         {canPlayerAct && retreatChoosing && (
                           <button
                             type="button"
                             onClick={() => {
-                              applyAndBot(state => retreat(state, "player", index));
+                              applyDuelAction(
+                                state => retreat(state, "player", index),
+                                { kind: "retreat", bench_index: index }
+                              );
                               setRetreatChoosing(false);
                             }}
                             className="rounded bg-indigo-500/15 px-1 py-0.5 text-[9px] text-indigo-200"
@@ -683,15 +1111,37 @@ export default function DuelPage() {
                               {canPlayerAct && (
                                 <div className="mt-1 grid gap-1">
                                   {card.card_type === "Personagem" && !card.is_evolution && (
-                                    <button onClick={() => applyAndBot(state => playToBench(state, "player", index))} disabled={player.bench.length >= DUEL_RULES.BENCH_LIMIT} className="rounded bg-indigo-500/20 px-1 py-0.5 text-[8px] text-indigo-100 disabled:opacity-40">Banco</button>
+                                    <button
+                                      onClick={() => applyDuelAction(
+                                        state => playToBench(state, "player", index),
+                                        { kind: "play_to_bench", hand_index: index }
+                                      )}
+                                      disabled={player.bench.length >= DUEL_RULES.BENCH_LIMIT}
+                                      className="rounded bg-indigo-500/20 px-1 py-0.5 text-[8px] text-indigo-100 disabled:opacity-40"
+                                    >
+                                      Banco
+                                    </button>
                                   )}
                                   {card.is_evolution && findEvolutionTargets(duel, "player", index).map(target => (
-                                    <button key={`${target.zone}-${target.index}`} onClick={() => applyAndBot(state => evolveFromHand(state, "player", index, target.zone, target.index))} className="rounded bg-cyan-500/15 px-1 py-0.5 text-[8px] text-cyan-100">
+                                    <button
+                                      key={`${target.zone}-${target.index}`}
+                                      onClick={() => applyDuelAction(
+                                        state => evolveFromHand(state, "player", index, target.zone, target.index),
+                                        { kind: "evolve", hand_index: index, zone: target.zone, target_index: target.index }
+                                      )}
+                                      className="rounded bg-cyan-500/15 px-1 py-0.5 text-[8px] text-cyan-100"
+                                    >
                                       {target.zone === "active" ? "Evoluir ativa" : `Evoluir banco ${target.index + 1}`}
                                     </button>
                                   ))}
                                   {card.card_type !== "Personagem" && card.card_type !== "Energia" && (
-                                    <button onClick={() => applyAndBot(state => playActionCard(state, "player", index))} className="rounded bg-fuchsia-500/20 px-1 py-0.5 text-[8px] text-fuchsia-100">
+                                    <button
+                                      onClick={() => applyDuelAction(
+                                        state => playActionCard(state, "player", index),
+                                        { kind: "play_action", hand_index: index, zone: "active", target_index: 0 }
+                                      )}
+                                      className="rounded bg-fuchsia-500/20 px-1 py-0.5 text-[8px] text-fuchsia-100"
+                                    >
                                       {card.card_type === "Equipamento" ? "Equipar" : "Usar"}
                                     </button>
                                   )}
@@ -705,7 +1155,14 @@ export default function DuelPage() {
                     </div>
                   </div>
                   <div className="absolute bottom-0 right-0 top-0 w-[200px] shrink-0">
-                    <DeckPile count={player.deck.length} canDraw={canPlayerDraw} onDraw={() => applyAndBot(state => drawTurnCard(state, "player"))} />
+                    <DeckPile
+                      count={playerDeckCount}
+                      canDraw={canPlayerDraw}
+                      onDraw={() => applyDuelAction(
+                        state => drawTurnCard(state, "player"),
+                        { kind: "draw_card" }
+                      )}
+                    />
                   </div>
                 </div>
               </section>
@@ -713,7 +1170,12 @@ export default function DuelPage() {
               <button
                 type="button"
                 onClick={() => {
-                  if (window.confirm("Desistir deste duelo?")) setDuel(null);
+                  if (!window.confirm("Desistir deste duelo?")) return;
+                  if (isOnlineDuel) {
+                    sendOnlineAction({ kind: "forfeit" });
+                    return;
+                  }
+                  setDuel(null);
                 }}
                 className="absolute bottom-4 left-4 inline-flex items-center gap-2 rounded-xl border border-rose-500/35 bg-rose-950/70 px-3 py-2 text-xs font-bold text-rose-100 shadow-lg shadow-black/30 hover:bg-rose-900/80"
               >

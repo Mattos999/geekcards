@@ -1,9 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { LayoutDashboard, Library, Layers, LogOut, PanelLeftClose, PanelLeftOpen, Plus, Sparkles, Shield, Swords, Users, ShieldCheck, UserCog } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import { Toaster } from "./ui/sonner";
+import { toast } from "sonner";
 import { ProfileModal } from "./ProfileModal";
+import { api } from "../lib/api";
 
 export const Layout = ({ children }) => {
   const { user, logout } = useAuth();
@@ -14,10 +16,110 @@ export const Layout = ({ children }) => {
     const saved = window.localStorage.getItem("geekcards-sidebar-collapsed");
     return saved === null ? location.pathname.startsWith("/duelo") : saved === "true";
   });
+  const onlineDuelSnapshotRef = useRef(new Map());
 
   useEffect(() => {
     window.localStorage.setItem("geekcards-sidebar-collapsed", String(collapsed));
   }, [collapsed]);
+
+  const openOnlineDuel = useCallback(duelId => {
+    navigate(`/duelo?online=${duelId}`);
+  }, [navigate]);
+
+  const showDuelToast = useCallback(({ key, title, description, duelId, tone = "indigo" }) => {
+    const storageKey = `geekcards-online-duel-toast-${key}`;
+    if (window.sessionStorage.getItem(storageKey)) return;
+    window.sessionStorage.setItem(storageKey, "1");
+    toast.custom(t => (
+      <button
+        type="button"
+        onClick={() => {
+          toast.dismiss(t);
+          openOnlineDuel(duelId);
+        }}
+        className={`w-80 rounded-xl border bg-slate-950 p-4 text-left shadow-2xl shadow-black/50 ${
+          tone === "rose" ? "border-rose-400/35" : tone === "emerald" ? "border-emerald-400/35" : "border-indigo-400/35"
+        }`}
+      >
+        <div className="flex items-center gap-2">
+          <Swords size={16} className={tone === "rose" ? "text-rose-300" : tone === "emerald" ? "text-emerald-300" : "text-indigo-300"} />
+          <div className="text-sm font-black text-slate-100">{title}</div>
+        </div>
+        <div className="mt-1 text-xs text-slate-400">{description}</div>
+        <div className="mt-3 text-[10px] font-bold uppercase tracking-wider text-indigo-200">Clique para abrir o duelo</div>
+      </button>
+    ), { duration: 12000 });
+  }, [openOnlineDuel]);
+
+  useEffect(() => {
+    if (!user) return undefined;
+
+    const pollOnlineDuels = async () => {
+      try {
+        const { data } = await api.get("/duels/online");
+        const current = new Map((data || []).map(duel => [duel.id, duel]));
+        const previous = onlineDuelSnapshotRef.current;
+        const outsideDuelPage = location.pathname !== "/duelo";
+
+        current.forEach(duel => {
+          const previousDuel = previous.get(duel.id);
+          const opponentName = duel.opponent?.name || "Oponente";
+          const isInviteForMe = duel.status === "invited" && duel.invitee_id === user.id;
+          if (isInviteForMe && !previousDuel) {
+            showDuelToast({
+              key: `invite-${duel.id}`,
+              title: "Convite de duelo",
+              description: `${opponentName} te convidou para um duelo online.`,
+              duelId: duel.id,
+              tone: "indigo",
+            });
+          }
+
+          const acceptedMyInvite = (
+            outsideDuelPage &&
+            previousDuel?.status === "invited" &&
+            duel.status !== "invited" &&
+            duel.inviter_id === user.id
+          );
+          if (acceptedMyInvite) {
+            showDuelToast({
+              key: `accepted-${duel.id}-${duel.status}`,
+              title: "Convite aceito",
+              description: `${opponentName} aceitou seu convite. Escolha seu deck para continuar.`,
+              duelId: duel.id,
+              tone: "emerald",
+            });
+          }
+        });
+
+        previous.forEach((duel, duelId) => {
+          const wasDeclinedOrCanceled = (
+            outsideDuelPage &&
+            duel.status === "invited" &&
+            duel.inviter_id === user.id &&
+            !current.has(duelId)
+          );
+          if (wasDeclinedOrCanceled) {
+            showDuelToast({
+              key: `declined-${duelId}`,
+              title: "Convite recusado",
+              description: `${duel.opponent?.name || "Oponente"} recusou ou cancelou o convite.`,
+              duelId,
+              tone: "rose",
+            });
+          }
+        });
+
+        onlineDuelSnapshotRef.current = current;
+      } catch {
+        // Ignore polling errors; regular pages already surface explicit API actions.
+      }
+    };
+
+    pollOnlineDuels();
+    const interval = window.setInterval(pollOnlineDuels, 5000);
+    return () => window.clearInterval(interval);
+  }, [location.pathname, showDuelToast, user]);
 
   const links = [
     { to: "/", icon: LayoutDashboard, label: "Dashboard", testid: "nav-dashboard" },
