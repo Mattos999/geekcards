@@ -161,6 +161,11 @@ const passiveDamageBonus = card => (card?.equipments || []).reduce((total, equip
     .reduce((sum, effect) => sum + (parseInt(effect.amount, 10) || 0), 0)
 ), 0);
 
+const automaticAbilities = card => [
+  ...(card?.abilities || []),
+  ...(card?.passive_abilities || []),
+];
+
 const DAMAGE_EFFECTS = new Set([
   EFFECT_TYPES.DAMAGE,
   EFFECT_TYPES.DAMAGE_RANDOM_TARGETS,
@@ -752,7 +757,7 @@ function resolveAbilityRules(state, side, sourceRef, trigger, context = {}) {
   const source = sourceRef ? targetCard(state.players[sourceRef.side], sourceRef.zone, sourceRef.index) : null;
   if (!source) return state;
 
-  return (source.abilities || []).reduce((next, ability) => {
+  return automaticAbilities(source).reduce((next, ability) => {
     const rules = normalizeAbilityRules(ability.rules).filter(rule => rule.trigger === trigger);
     if (rules.length === 0) return next;
 
@@ -808,7 +813,7 @@ const damageReactionOptions = (state, defendingSide, damageTargetRef, damageSour
       wouldBeKnockedOut ? ABILITY_TRIGGERS.ALLY_ACTIVE_WOULD_BE_KNOCKED_OUT : null,
     ].filter(Boolean);
 
-    return (source.abilities || []).flatMap((ability, abilityIndex) => {
+    return automaticAbilities(source).flatMap((ability, abilityIndex) => {
       if (!canPayAbility(source, ability)) return [];
 
       return normalizeAbilityRules(ability.rules)

@@ -41,7 +41,7 @@ import { toast } from "sonner";
 const BLANK = {
   name: "", card_type: "Personagem", natures: [], rarity: 0, is_alpha: false, is_evolution: false, evolution_number: "",
   evolves_from_card_id: "", evolves_from_name: "",
-  hp: 100, recuo: 1, abilities: [], effects: [], passive_effects: [], speed: "", attach_to: "",
+  hp: 100, recuo: 1, abilities: [], passive_abilities: [], effects: [], passive_effects: [], speed: "", attach_to: "",
   energy_type: null, image_url: null, description: "", expansion: "", universe: "", additional_info: [],
   meta: { age: "", elements: [], weapon: "", style: "", tags: [] },
   public_status: "private"
@@ -701,6 +701,28 @@ const EffectsList = ({ effects, onRemove }) => (
   )
 );
 
+const EffectDropdown = ({ title = "Opcoes de efeito", subtitle, children }) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-950/40">
+      <button
+        type="button"
+        onClick={() => setOpen(current => !current)}
+        className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
+      >
+        <div>
+          <div className="text-xs font-semibold text-slate-300">{title}</div>
+          {subtitle && <div className="mt-0.5 text-[10px] text-slate-500">{subtitle}</div>}
+        </div>
+        <span className="rounded border border-slate-700 px-2 py-1 text-[10px] uppercase tracking-wider text-slate-400">
+          {open ? "Fechar" : "Abrir"}
+        </span>
+      </button>
+      {open && <div className="border-t border-slate-800 p-3">{children}</div>}
+    </div>
+  );
+};
+
 export default function CardBuilderPage() {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -709,6 +731,8 @@ export default function CardBuilderPage() {
   const [uploading, setUploading] = useState(false);
   const [abilityDraft, setAbilityDraft] = useState(null);
   const [editingAbilityIndex, setEditingAbilityIndex] = useState(null);
+  const [passiveAbilityDraft, setPassiveAbilityDraft] = useState(null);
+  const [editingPassiveAbilityIndex, setEditingPassiveAbilityIndex] = useState(null);
   const committingAbilityRef = useRef(false);
   const [evolutionOptions, setEvolutionOptions] = useState([]);
   const [cardEffectDraft, setCardEffectDraft] = useState(BLANK_EFFECT);
@@ -821,11 +845,28 @@ export default function CardBuilderPage() {
     energy_amount_to_add: 1
   });
 
+  const buildPassiveAbilityDraft = (ability = {}) => ({
+    name: ability.name || "",
+    description: ability.description || "",
+    damage: 0,
+    energy_cost: 0,
+    energy_costs: [],
+    effects: [],
+    rules: normalizeAbilityRules(ability.rules),
+    rule_to_add: { ...makeBlankRule(), trigger: ABILITY_TRIGGERS.BEFORE_DAMAGE_TAKEN },
+  });
+
   const openAbilityForm = () => setAbilityDraft(buildAbilityDraft());
+  const openPassiveAbilityForm = () => setPassiveAbilityDraft(buildPassiveAbilityDraft());
   const cancelAbilityForm = () => {
   setAbilityDraft(null);
   setEditingAbilityIndex(null);
 };
+
+  const cancelPassiveAbilityForm = () => {
+    setPassiveAbilityDraft(null);
+    setEditingPassiveAbilityIndex(null);
+  };
 
   const addDraftEnergyCost = () => {
     setAbilityDraft(d => {
@@ -1065,6 +1106,149 @@ export default function CardBuilderPage() {
     }));
   };
 
+  const updatePassiveRuleDraft = (field, value) => {
+    setPassiveAbilityDraft(d => ({
+      ...d,
+      rule_to_add: {
+        ...(d.rule_to_add || makeBlankRule()),
+        [field]: value,
+      },
+    }));
+  };
+
+  const updatePassiveRuleConditionDraft = (field, value) => {
+    setPassiveAbilityDraft(d => ({
+      ...d,
+      rule_to_add: (() => {
+        const rule = d.rule_to_add || makeBlankRule();
+        const currentCondition = rule.condition_to_add || BLANK_RULE_CONDITION;
+        const nextCondition = { ...currentCondition, [field]: value };
+        if (field === "type") nextCondition.value = defaultRuleConditionValue(value);
+        return { ...rule, condition_to_add: nextCondition };
+      })(),
+    }));
+  };
+
+  const addPassiveRuleCondition = () => {
+    setPassiveAbilityDraft(d => {
+      const rule = d.rule_to_add || makeBlankRule();
+      const condition = normalizeRuleConditionDraft(rule.condition_to_add || BLANK_RULE_CONDITION);
+      return {
+        ...d,
+        rule_to_add: {
+          ...rule,
+          conditions: [...normalizeAbilityConditions(rule.conditions), condition],
+          condition_to_add: { ...BLANK_RULE_CONDITION },
+        },
+      };
+    });
+  };
+
+  const removePassiveRuleCondition = idx => {
+    setPassiveAbilityDraft(d => {
+      const rule = d.rule_to_add || makeBlankRule();
+      return {
+        ...d,
+        rule_to_add: {
+          ...rule,
+          conditions: normalizeAbilityConditions(rule.conditions).filter((_, i) => i !== idx),
+        },
+      };
+    });
+  };
+
+  const updatePassiveRuleEffectDraft = (field, value) => {
+    setPassiveAbilityDraft(d => {
+      const rule = d.rule_to_add || makeBlankRule();
+      if (field === "type") {
+        return {
+          ...d,
+          rule_to_add: {
+            ...rule,
+            effect_to_add: {
+              ...BLANK_EFFECT,
+              type: value,
+              target: effectFieldsFor(value).includes("target") ? TARGETS.SELF_ACTIVE : "",
+            },
+          },
+        };
+      }
+      return {
+        ...d,
+        rule_to_add: {
+          ...rule,
+          effect_to_add: {
+            ...(rule.effect_to_add || BLANK_EFFECT),
+            [field]: field === "amount" ? parseInt(value, 10) || 0 : value,
+          },
+        },
+      };
+    });
+  };
+
+  const addPassiveRuleEffect = () => {
+    setPassiveAbilityDraft(d => {
+      const rule = d.rule_to_add || makeBlankRule();
+      const effect = rule.effect_to_add;
+      if (!isValidEffectDraft(effect)) {
+        toast.error("Preencha o efeito antes de adicionar");
+        return d;
+      }
+      return {
+        ...d,
+        rule_to_add: {
+          ...rule,
+          effects: [...normalizeEffects(rule.effects), sanitizeEffectDraft(effect)],
+          effect_to_add: { ...BLANK_EFFECT },
+        },
+      };
+    });
+  };
+
+  const removePassiveRuleEffect = idx => {
+    setPassiveAbilityDraft(d => {
+      const rule = d.rule_to_add || makeBlankRule();
+      return {
+        ...d,
+        rule_to_add: {
+          ...rule,
+          effects: normalizeEffects(rule.effects).filter((_, i) => i !== idx),
+        },
+      };
+    });
+  };
+
+  const addPassiveAbilityRule = () => {
+    setPassiveAbilityDraft(d => {
+      const rule = d.rule_to_add || makeBlankRule();
+      const effects = normalizeEffects(rule.effects);
+      if (effects.length === 0) {
+        toast.error("Adicione pelo menos um efeito na regra passiva");
+        return d;
+      }
+      return {
+        ...d,
+        rules: [
+          ...normalizeAbilityRules(d.rules),
+          {
+            trigger: rule.trigger || ABILITY_TRIGGERS.BEFORE_DAMAGE_TAKEN,
+            conditions: normalizeAbilityConditions(rule.conditions),
+            effects,
+            duration: rule.duration || DURATIONS.INSTANT,
+          },
+        ],
+        rule_to_add: makeBlankRule(),
+      };
+    });
+  };
+
+  const removePassiveAbilityRule = idx => {
+    setPassiveAbilityDraft(d => ({
+      ...d,
+      rules: normalizeAbilityRules(d.rules).filter((_, i) => i !== idx),
+    }));
+  };
+
   const addCardEffect = (field, effect) => {
     setCard(c => ({
       ...c,
@@ -1141,6 +1325,34 @@ export default function CardBuilderPage() {
   window.setTimeout(() => { committingAbilityRef.current = false; }, 300);
 };
 
+  const commitPassiveAbility = () => {
+    if (!passiveAbilityDraft.name.trim()) {
+      toast.error("Nome da passiva e obrigatorio");
+      return;
+    }
+    const rules = normalizeAbilityRules(passiveAbilityDraft.rules);
+    if (rules.length === 0) {
+      toast.error("Adicione pelo menos uma regra avancada para a passiva");
+      return;
+    }
+    const passive = {
+      name: passiveAbilityDraft.name.trim(),
+      description: passiveAbilityDraft.description.trim(),
+      damage: 0,
+      energy_cost: 0,
+      energy_costs: [],
+      effects: [],
+      rules,
+    };
+    setCard(c => {
+      const updated = [...(c.passive_abilities || [])];
+      if (editingPassiveAbilityIndex !== null) updated[editingPassiveAbilityIndex] = passive;
+      else updated.push(passive);
+      return { ...c, passive_abilities: updated };
+    });
+    cancelPassiveAbilityForm();
+  };
+
   const removeAbility = (idx) => {
     setCard(c => ({ ...c, abilities: (c.abilities || []).filter((_, i) => i !== idx) }));
   };
@@ -1152,6 +1364,16 @@ export default function CardBuilderPage() {
 
   setEditingAbilityIndex(idx);
 };
+
+  const removePassiveAbility = idx => {
+    setCard(c => ({ ...c, passive_abilities: (c.passive_abilities || []).filter((_, i) => i !== idx) }));
+  };
+
+  const editPassiveAbility = idx => {
+    const ability = card.passive_abilities[idx];
+    setPassiveAbilityDraft(buildPassiveAbilityDraft(ability));
+    setEditingPassiveAbilityIndex(idx);
+  };
 
   const upload = async (e) => {
     const file = e.target.files?.[0];
@@ -1193,6 +1415,14 @@ export default function CardBuilderPage() {
       payload.abilities = (payload.abilities || []).map(ability => ({
         ...ability,
         effects: normalizeEffects(ability.effects),
+        rules: normalizeAbilityRules(ability.rules),
+      }));
+      payload.passive_abilities = (payload.passive_abilities || []).map(ability => ({
+        ...ability,
+        damage: 0,
+        energy_cost: 0,
+        energy_costs: [],
+        effects: [],
         rules: normalizeAbilityRules(ability.rules),
       }));
       if (!payload.is_evolution) {
@@ -1673,11 +1903,13 @@ export default function CardBuilderPage() {
                       <label className="text-xs text-slate-400">Efeitos</label>
                       <span className="text-[10px] text-slate-500">{normalizeEffects(abilityDraft.effects).length} adicionados</span>
                     </div>
-                    <EffectControls
-                      effect={abilityDraft.effect_to_add || BLANK_EFFECT}
-                      onChange={updateDraftEffect}
-                      onAdd={addDraftEffect}
-                    />
+                    <EffectDropdown title="Adicionar efeito direto" subtitle="Abra para escolher e configurar o efeito da habilidade.">
+                      <EffectControls
+                        effect={abilityDraft.effect_to_add || BLANK_EFFECT}
+                        onChange={updateDraftEffect}
+                        onAdd={addDraftEffect}
+                      />
+                    </EffectDropdown>
                     <EffectsList effects={abilityDraft.effects} onRemove={removeDraftEffect} />
                   </div>
                   <div className="mb-3 rounded-lg border border-cyan-500/20 bg-cyan-950/10 p-3 space-y-3">
@@ -1763,11 +1995,13 @@ export default function CardBuilderPage() {
                       )}
                     </div>
 
-                    <EffectControls
-                      effect={abilityDraft.rule_to_add?.effect_to_add || BLANK_EFFECT}
-                      onChange={updateRuleEffectDraft}
-                      onAdd={addRuleEffect}
-                    />
+                    <EffectDropdown title="Adicionar efeito da regra" subtitle="Efeito que sera aplicado quando gatilho e condicoes forem cumpridos.">
+                      <EffectControls
+                        effect={abilityDraft.rule_to_add?.effect_to_add || BLANK_EFFECT}
+                        onChange={updateRuleEffectDraft}
+                        onAdd={addRuleEffect}
+                      />
+                    </EffectDropdown>
                     <EffectsList effects={abilityDraft.rule_to_add?.effects} onRemove={removeRuleEffect} />
 
                     <div className="flex justify-end">
@@ -1823,6 +2057,207 @@ export default function CardBuilderPage() {
             )}
           </section>
 
+          {card.card_type === "Personagem" && (
+            <section className="glass rounded-xl p-6">
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm uppercase tracking-widest text-slate-400">Habilidades passivas</h3>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Regras automaticas da ativa ou banco. Nao aparecem como ataque manual.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={openPassiveAbilityForm}
+                  disabled={passiveAbilityDraft !== null}
+                  className="flex items-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/20 px-3 py-1.5 text-xs text-cyan-200 transition-all hover:bg-cyan-500/30 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Plus size={12} /> Adicionar
+                </button>
+              </div>
+
+              {(card.passive_abilities || []).length > 0 && (
+                <div className="mb-4 space-y-2">
+                  {(card.passive_abilities || []).map((passive, idx) => (
+                    <div key={idx} className="flex items-start gap-3 rounded-lg border border-cyan-500/20 bg-cyan-950/10 p-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-xs font-semibold text-cyan-300">{passive.name}</div>
+                        {passive.description && (
+                          <div className="mt-0.5 text-xs leading-relaxed text-slate-400">{passive.description}</div>
+                        )}
+                        {normalizeAbilityRules(passive.rules).length > 0 && (
+                          <div className="mt-1 text-[10px] text-cyan-300/80">
+                            {normalizeAbilityRules(passive.rules).map(ruleSummary).join(" | ")}
+                          </div>
+                        )}
+                      </div>
+                      <button type="button" onClick={() => editPassiveAbility(idx)} className="shrink-0 text-slate-500 transition-colors hover:text-cyan-300">Editar</button>
+                      <button type="button" onClick={() => removePassiveAbility(idx)} className="shrink-0 text-slate-500 transition-colors hover:text-rose-400">
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {passiveAbilityDraft !== null && (
+                <div className="space-y-3 rounded-lg border border-cyan-500/30 bg-slate-900/80 p-4">
+                  <div>
+                    <label className="mb-1.5 block text-xs text-slate-400">Nome da passiva</label>
+                    <input
+                      value={passiveAbilityDraft.name}
+                      onChange={e => setPassiveAbilityDraft(d => ({ ...d, name: e.target.value }))}
+                      placeholder="Ex: Guarda baixa"
+                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm focus:border-cyan-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs text-slate-400">Descricao</label>
+                    <textarea
+                      value={passiveAbilityDraft.description}
+                      onChange={e => setPassiveAbilityDraft(d => ({ ...d, description: e.target.value }))}
+                      rows={2}
+                      placeholder="Ex: Enquanto estiver no banco, reduz o recuo da ativa em 1 se houver uma carta Natural no banco."
+                      className="w-full resize-none rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm focus:border-cyan-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="rounded-lg border border-cyan-500/20 bg-cyan-950/10 p-3 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <label className="text-xs text-slate-400">Regras passivas</label>
+                      <span className="text-[10px] text-slate-500">{normalizeAbilityRules(passiveAbilityDraft.rules).length} adicionadas</span>
+                    </div>
+
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <label>
+                        <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Gatilho</span>
+                        <select
+                          value={passiveAbilityDraft.rule_to_add?.trigger || ABILITY_TRIGGERS.BEFORE_DAMAGE_TAKEN}
+                          onChange={e => updatePassiveRuleDraft("trigger", e.target.value)}
+                          className="w-full min-w-0 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm focus:border-cyan-500 focus:outline-none"
+                        >
+                          {Object.values(ABILITY_TRIGGERS).map(trigger => (
+                            <option key={trigger} value={trigger}>{ABILITY_TRIGGER_LABELS[trigger]}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Duracao</span>
+                        <select
+                          value={passiveAbilityDraft.rule_to_add?.duration || DURATIONS.INSTANT}
+                          onChange={e => updatePassiveRuleDraft("duration", e.target.value)}
+                          className="w-full min-w-0 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm focus:border-cyan-500 focus:outline-none"
+                        >
+                          {Object.values(DURATIONS).map(duration => (
+                            <option key={duration} value={duration}>{DURATION_LABELS[duration]}</option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+
+                    <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3 space-y-2">
+                      <div className="text-[10px] uppercase tracking-wider text-slate-500">Condicoes</div>
+                      <div className="flex flex-wrap items-end gap-2">
+                        <label className="min-w-[13rem] flex-[1_1_14rem]">
+                          <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Tipo</span>
+                          <select
+                            value={passiveAbilityDraft.rule_to_add?.condition_to_add?.type || ABILITY_CONDITION_TYPES.SOURCE_POSITION}
+                            onChange={e => updatePassiveRuleConditionDraft("type", e.target.value)}
+                            className="w-full min-w-0 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm focus:border-cyan-500 focus:outline-none"
+                          >
+                            {Object.values(ABILITY_CONDITION_TYPES).map(type => (
+                              <option key={type} value={type}>{ABILITY_CONDITION_LABELS[type]}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="min-w-[13rem] flex-[2_1_18rem]">
+                          <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Valor</span>
+                          <RuleConditionValueControl
+                            condition={passiveAbilityDraft.rule_to_add?.condition_to_add}
+                            onChange={value => updatePassiveRuleConditionDraft("value", value)}
+                            className="w-full min-w-0 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm focus:border-cyan-500 focus:outline-none"
+                          />
+                        </label>
+                        <div className="flex basis-full justify-end">
+                          <button
+                            type="button"
+                            onClick={addPassiveRuleCondition}
+                            className="inline-flex h-10 items-center justify-center rounded-lg border border-cyan-500/40 bg-cyan-500/20 px-4 text-xs text-cyan-100 hover:bg-cyan-500/30"
+                          >
+                            <Plus size={13} />
+                          </button>
+                        </div>
+                      </div>
+                      {normalizeAbilityConditions(passiveAbilityDraft.rule_to_add?.conditions).length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {normalizeAbilityConditions(passiveAbilityDraft.rule_to_add.conditions).map((condition, idx) => (
+                            <button
+                              key={`${condition.type}-${idx}`}
+                              type="button"
+                              onClick={() => removePassiveRuleCondition(idx)}
+                              className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-300 hover:border-rose-500/60 hover:text-rose-200"
+                            >
+                              {ABILITY_CONDITION_LABELS[condition.type]}{abilityConditionValueLabel(condition) ? `: ${abilityConditionValueLabel(condition)}` : ""}
+                              <X size={11} />
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <EffectDropdown title="Adicionar efeito passivo" subtitle="Ex: reduzir recuo, reduzir dano recebido, prevenir dano ou imunidade.">
+                      <EffectControls
+                        effect={passiveAbilityDraft.rule_to_add?.effect_to_add || BLANK_EFFECT}
+                        onChange={updatePassiveRuleEffectDraft}
+                        onAdd={addPassiveRuleEffect}
+                      />
+                    </EffectDropdown>
+                    <EffectsList effects={passiveAbilityDraft.rule_to_add?.effects} onRemove={removePassiveRuleEffect} />
+
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={addPassiveAbilityRule}
+                        className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-4 py-2 text-xs text-cyan-100 hover:bg-cyan-500/25"
+                      >
+                        <Plus size={13} /> Adicionar regra passiva
+                      </button>
+                    </div>
+
+                    {normalizeAbilityRules(passiveAbilityDraft.rules).length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {normalizeAbilityRules(passiveAbilityDraft.rules).map((rule, idx) => (
+                          <button
+                            key={`${rule.trigger}-${idx}`}
+                            type="button"
+                            onClick={() => removePassiveAbilityRule(idx)}
+                            className="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-950/30 px-2 py-1 text-xs text-cyan-100 hover:border-rose-500/60 hover:text-rose-200"
+                          >
+                            {ruleSummary(rule)}
+                            <X size={11} />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex justify-end gap-2">
+                    <button type="button" onClick={cancelPassiveAbilityForm} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-400 transition-all hover:border-slate-600 hover:text-slate-200">
+                      Cancelar
+                    </button>
+                    <button type="button" onClick={commitPassiveAbility} className="rounded-lg border border-cyan-500 bg-cyan-600 px-3 py-1.5 text-xs transition-all hover:bg-cyan-500">
+                      Confirmar passiva
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {(card.passive_abilities || []).length === 0 && passiveAbilityDraft === null && (
+                <p className="text-xs italic text-slate-600">Nenhuma passiva adicionada.</p>
+              )}
+            </section>
+          )}
+
           {["Item", "Mestre"].includes(card.card_type) && (
             <section className="glass rounded-xl p-6">
               <div className="mb-4">
@@ -1830,17 +2265,19 @@ export default function CardBuilderPage() {
                 <p className="mt-1 text-xs text-slate-500">Usados quando a carta for jogada no duelo.</p>
               </div>
               <div className="space-y-3">
-                <EffectControls
-                  effect={cardEffectDraft}
-                  onChange={(field, value) => setCardEffectDraft(current => ({
-                    ...current,
-                    [field]: field === "amount" ? parseInt(value, 10) || 0 : value,
-                  }))}
-                  onAdd={() => {
-                    addCardEffect("effects", cardEffectDraft);
-                    setCardEffectDraft({ ...BLANK_EFFECT });
-                  }}
-                />
+                <EffectDropdown title="Adicionar efeito da carta" subtitle="Abra para configurar o efeito usado ao jogar esta carta.">
+                  <EffectControls
+                    effect={cardEffectDraft}
+                    onChange={(field, value) => setCardEffectDraft(current => ({
+                      ...current,
+                      [field]: field === "amount" ? parseInt(value, 10) || 0 : value,
+                    }))}
+                    onAdd={() => {
+                      addCardEffect("effects", cardEffectDraft);
+                      setCardEffectDraft({ ...BLANK_EFFECT });
+                    }}
+                  />
+                </EffectDropdown>
                 <EffectsList effects={card.effects} onRemove={idx => removeCardEffect("effects", idx)} />
               </div>
             </section>
@@ -1863,22 +2300,24 @@ export default function CardBuilderPage() {
                 </select>
               </div>
               <div className="space-y-3">
-                <EffectControls
-                  effect={passiveEffectDraft}
-                  onChange={(field, value) => setPassiveEffectDraft(current => ({
-                    ...current,
-                    [field]: field === "amount" ? parseInt(value, 10) || 0 : value,
-                  }))}
-                  onAdd={() => {
-                    addCardEffect("passive_effects", passiveEffectDraft);
-                    setPassiveEffectDraft({
-                      ...BLANK_EFFECT,
-                      type: EFFECT_TYPES.BUFF_EQUIPPED_CARD_DAMAGE,
-                      target: TARGETS.EQUIPPED_CARD,
-                      condition: EFFECT_CONDITIONS.EQUIPPED_CARD_DEALS_DAMAGE,
-                    });
-                  }}
-                />
+                <EffectDropdown title="Adicionar efeito passivo do equipamento" subtitle="Abra para configurar o efeito passivo anexado ao personagem.">
+                  <EffectControls
+                    effect={passiveEffectDraft}
+                    onChange={(field, value) => setPassiveEffectDraft(current => ({
+                      ...current,
+                      [field]: field === "amount" ? parseInt(value, 10) || 0 : value,
+                    }))}
+                    onAdd={() => {
+                      addCardEffect("passive_effects", passiveEffectDraft);
+                      setPassiveEffectDraft({
+                        ...BLANK_EFFECT,
+                        type: EFFECT_TYPES.BUFF_EQUIPPED_CARD_DAMAGE,
+                        target: TARGETS.EQUIPPED_CARD,
+                        condition: EFFECT_CONDITIONS.EQUIPPED_CARD_DEALS_DAMAGE,
+                      });
+                    }}
+                  />
+                </EffectDropdown>
                 <EffectsList effects={card.passive_effects} onRemove={idx => removeCardEffect("passive_effects", idx)} />
               </div>
             </section>

@@ -21,7 +21,7 @@ import {
   WEAKNESS_MAP,
   computeEffectiveWeaknesses,
 } from "../lib/natures";
-import { effectSummary, normalizeEffects } from "../lib/cardEffects";
+import { effectSummary, normalizeAbilityRules, normalizeEffects, ruleSummary } from "../lib/cardEffects";
 
 const ADVANTAGE_MAP = {};
 NATURES.forEach(nature => {
@@ -109,6 +109,7 @@ export function CommunityCardDetailModal({ card, onClose }) {
   if (!card) return null;
 
   const abilities = Array.isArray(card.abilities) ? card.abilities : [];
+  const passiveAbilities = Array.isArray(card.passive_abilities) ? card.passive_abilities : [];
   const cardEffects = normalizeEffects(card.effects);
   const passiveEffects = normalizeEffects(card.passive_effects);
   const rarityColor = card.is_alpha
@@ -337,6 +338,47 @@ export function CommunityCardDetailModal({ card, onClose }) {
               </div>
             )}
           </Section>
+
+          {passiveAbilities.length > 0 && (
+            <Section title={`Passivas (${passiveAbilities.length})`}>
+              <div className="space-y-3">
+                {passiveAbilities.map((ability, index) => (
+                  <div
+                    key={`${ability.name}-${index}`}
+                    className="rounded-lg border border-fuchsia-500/25 bg-fuchsia-500/10 p-3"
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      <ShieldAlert size={15} className="shrink-0 text-fuchsia-200" />
+                      <h4 className="truncate text-sm font-bold text-slate-100">
+                        {ability.name || `Passiva ${index + 1}`}
+                      </h4>
+                    </div>
+
+                    {ability.description ? (
+                      <p className="mt-2 text-sm leading-relaxed text-slate-400">
+                        {ability.description}
+                      </p>
+                    ) : (
+                      <p className="mt-2 text-sm text-slate-500">Sem descricao.</p>
+                    )}
+
+                    {normalizeAbilityRules(ability.rules).length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {normalizeAbilityRules(ability.rules).map((rule, ruleIndex) => (
+                          <span
+                            key={`${rule.trigger}-${ruleIndex}`}
+                            className="rounded-full border border-fuchsia-500/30 bg-fuchsia-500/10 px-2.5 py-1 text-[11px] text-fuchsia-100"
+                          >
+                            {ruleSummary(rule)}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </Section>
+          )}
 
           {(cardEffects.length > 0 || passiveEffects.length > 0) && (
             <Section title="Efeitos">
