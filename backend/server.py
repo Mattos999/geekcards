@@ -94,6 +94,12 @@ class Effect(BaseModel):
     applies_to_nature: Optional[str] = None
     meta_key: Optional[str] = None
     meta_value: Optional[str] = None
+    priority: int = 10
+    value_formula: Optional[str] = None
+    dice_type: Optional[str] = None
+    dice_condition: Optional[str] = None
+    condition_type: Optional[str] = None
+    description: Optional[str] = None
 
 
 class AbilityRuleCondition(BaseModel):
@@ -325,6 +331,12 @@ def normalize_card_payload(body: CardCreate) -> dict:
                 "applies_to_nature": effect.get("applies_to_nature") or None,
                 "meta_key": effect.get("meta_key") or None,
                 "meta_value": effect.get("meta_value") or None,
+                "priority": max(0, int(effect.get("priority") or 10)),
+                "value_formula": effect.get("value_formula") or effect.get("valueFormula") or None,
+                "dice_type": effect.get("dice_type") or effect.get("diceType") or None,
+                "dice_condition": effect.get("dice_condition") or effect.get("diceCondition") or None,
+                "condition_type": effect.get("condition_type") or effect.get("conditionType") or None,
+                "description": effect.get("description") or None,
             })
         return normalized
 
@@ -1481,10 +1493,16 @@ def _online_target_refs(state: dict, side: str, effect: dict, context: Optional[
     if effect_type == "DAMAGE_TO_PREVIOUSLY_DAMAGED_BENCH":
         return [ref for ref in opp_bench if (_online_ref_card(state, ref) or {}).get("hp_remaining", 0) < (_online_ref_card(state, ref) or {}).get("hp", 0)]
 
-    if target in ["SELF", "SELF_ACTIVE"]:
+    if target in ["ACTIVE", "SELF", "SELF_ACTIVE"]:
         return [{"side": side, "zone": "active", "index": 0}] if player.get("active") else []
-    if target in ["SELF_BENCH", "ALL_SELF_BENCH"]:
+    if target in ["BENCH", "SELF_BENCH", "ALL_SELF_BENCH"]:
         return own_bench
+    if target == "ANY":
+        return (([{"side": opponent_side, "zone": "active", "index": 0}] if opponent.get("active") else []) + opp_bench + ([{"side": side, "zone": "active", "index": 0}] if player.get("active") else []) + own_bench)[:1]
+    if target == "ALL_ALLY":
+        return ([{"side": side, "zone": "active", "index": 0}] if player.get("active") else []) + own_bench
+    if target == "ALL_ENEMY":
+        return ([{"side": opponent_side, "zone": "active", "index": 0}] if opponent.get("active") else []) + opp_bench
     if target == "SELF_BENCH_RANDOM":
         return [random.choice(own_bench)] if own_bench else []
     if target == "SELF_BENCH_BY_NATURE":
@@ -1518,14 +1536,16 @@ ONLINE_DAMAGE_EFFECTS = {
     "DAMAGE_TO_PREVIOUSLY_DAMAGED_BENCH", "COUNTER_DAMAGE", "INSTANT_KNOCKOUT_IF_DAMAGE_TYPE",
 }
 ONLINE_HEAL_EFFECTS = {"HEAL", "HEAL_SELF", "HEAL_ACTIVE", "HEAL_BENCH", "HEAL_ANY_SELF_CARD", "HEAL_EQUIPPED_CARD", "HEAL_BY_DAMAGE_DEALT", "HEAL_ALLY_ON_DAMAGE", "HEAL_PER_TURN"}
-ONLINE_ADD_ENERGY_EFFECTS = {"ADD_ENERGY", "ADD_TYPED_ENERGY", "ADD_ENERGY_TO_ACTIVE", "ADD_ENERGY_TO_BENCH", "ADD_ENERGY_BY_COIN", "ADD_ENERGY_BY_DAMAGE_TAKEN", "ADD_ENERGY_ON_ATTACK", "ADD_MULTIPLE_ENERGY"}
-ONLINE_REMOVE_ENERGY_EFFECTS = {"REMOVE_ENERGY", "REMOVE_RANDOM_ENERGY", "DISCARD_OWN_ENERGY"}
-ONLINE_BUFF_EFFECTS = {"BUFF_DAMAGE", "BUFF_DAMAGE_THIS_TURN", "BUFF_DAMAGE_NEXT_TURN", "BUFF_EQUIPPED_CARD_DAMAGE", "BUFF_DAMAGE_BY_TAG", "BUFF_DAMAGE_BY_ATTACHED_ENERGY", "BUFF_BASE_ATTRIBUTES", "INCREASE_MAX_HP", "BUFF_HEAL_AMOUNT", "DOUBLE_DAMAGE_AGAINST_TYPE", "WEAKNESS_OVERRIDE", "ALPHA_POINT_OVERRIDE", "ENERGY_ANY_TYPE", "ENERGY_COST_REDUCTION", "ENERGY_REQUIRED_TYPE", "IGNORE_RETREAT_COST", "REDUCE_RETREAT_COST", "ATTACK_FROM_BENCH"}
+ONLINE_ADD_ENERGY_EFFECTS = {"ENERGY_GAIN", "ADD_ENERGY", "ADD_TYPED_ENERGY", "ADD_ENERGY_TO_ACTIVE", "ADD_ENERGY_TO_BENCH", "ADD_ENERGY_BY_COIN", "ADD_ENERGY_BY_DAMAGE_TAKEN", "ADD_ENERGY_ON_ATTACK", "ADD_MULTIPLE_ENERGY"}
+ONLINE_REMOVE_ENERGY_EFFECTS = {"ENERGY_REMOVE", "REMOVE_ENERGY", "REMOVE_RANDOM_ENERGY", "DISCARD_OWN_ENERGY"}
+ONLINE_BUFF_EFFECTS = {"DAMAGE_MODIFIER", "BUFF_DAMAGE", "BUFF_DAMAGE_THIS_TURN", "BUFF_DAMAGE_NEXT_TURN", "BUFF_EQUIPPED_CARD_DAMAGE", "BUFF_DAMAGE_BY_TAG", "BUFF_DAMAGE_BY_ATTACHED_ENERGY", "BUFF_BASE_ATTRIBUTES", "INCREASE_MAX_HP", "BUFF_HEAL_AMOUNT", "DOUBLE_DAMAGE_AGAINST_TYPE", "WEAKNESS_OVERRIDE", "ALPHA_POINT_OVERRIDE", "ENERGY_ANY_TYPE", "ENERGY_COST_REDUCTION", "ENERGY_REQUIRED_TYPE", "IGNORE_RETREAT_COST", "REDUCE_RETREAT_COST", "ATTACK_FROM_BENCH"}
 ONLINE_DEFENSE_EFFECTS = {"REDUCE_DAMAGE", "REDUCE_NEXT_DAMAGE", "HALVE_DAMAGE_TAKEN", "PREVENT_DAMAGE"}
-ONLINE_STATUS_EFFECTS = {"BURN", "PARALYZE", "FREEZE", "CONFUSE", "PREVENT_ATTACK", "PREVENT_RETREAT", "BLOCK_RETREAT", "SKIP_NEXT_ATTACK", "CANNOT_USE_SAME_ATTACK_NEXT_TURN", "POISON", "DAMAGE_OVER_TIME", "STATUS_ON_ATTACKER"}
-ONLINE_IMMUNITY_EFFECTS = {"IMMUNE_TO_DAMAGE_TYPE", "IMMUNE_TO_NEGATIVE_EFFECTS", "IGNORE_TOOL_EFFECTS", "REFLECT_DAMAGE", "REFLECT_DOUBLE_DAMAGE", "REDIRECT_DAMAGE", "SHARE_DAMAGE", "PREVENT_POINT_GAIN", "CANCEL_KNOCKOUT_POINT", "INSTANT_KNOCKOUT_IF_DAMAGE_TYPE"}
+ONLINE_STATUS_EFFECTS = {"APPLY_CONDITION", "BLOCK_ACTION", "BURN", "PARALYZE", "FREEZE", "CONFUSE", "PREVENT_ATTACK", "PREVENT_RETREAT", "BLOCK_RETREAT", "SKIP_NEXT_ATTACK", "CANNOT_USE_SAME_ATTACK_NEXT_TURN", "POISON", "DAMAGE_OVER_TIME", "STATUS_ON_ATTACKER"}
+ONLINE_IMMUNITY_EFFECTS = {"IMMUNITY", "DAMAGE_REDIRECT", "IMMUNE_TO_DAMAGE_TYPE", "IMMUNE_TO_NEGATIVE_EFFECTS", "IGNORE_TOOL_EFFECTS", "REFLECT_DAMAGE", "REFLECT_DOUBLE_DAMAGE", "REDIRECT_DAMAGE", "SHARE_DAMAGE", "PREVENT_POINT_GAIN", "CANCEL_KNOCKOUT_POINT", "INSTANT_KNOCKOUT_IF_DAMAGE_TYPE"}
 ONLINE_ONE_TURN_STATUSES = {"paralyze", "freeze", "prevent_attack", "prevent_retreat", "block_retreat", "skip_next_attack", "cannot_use_same_attack"}
 ONLINE_STATUS_BY_EFFECT = {
+    "APPLY_CONDITION": None,
+    "BLOCK_ACTION": None,
     "BURN": "burn",
     "PARALYZE": "paralyze",
     "FREEZE": "freeze",
@@ -1539,17 +1559,17 @@ ONLINE_STATUS_BY_EFFECT = {
     "DAMAGE_OVER_TIME": "damage_over_time",
     "STATUS_ON_ATTACKER": "status_on_attacker",
 }
-ONLINE_EQUIPMENT_DAMAGE_BONUS_EFFECTS = {"BUFF_DAMAGE", "BUFF_DAMAGE_THIS_TURN", "BUFF_DAMAGE_NEXT_TURN", "BUFF_EQUIPPED_CARD_DAMAGE", "BUFF_DAMAGE_BY_TAG", "BUFF_DAMAGE_BY_ATTACHED_ENERGY"}
+ONLINE_EQUIPMENT_DAMAGE_BONUS_EFFECTS = {"DAMAGE_MODIFIER", "BUFF_DAMAGE", "BUFF_DAMAGE_THIS_TURN", "BUFF_DAMAGE_NEXT_TURN", "BUFF_EQUIPPED_CARD_DAMAGE", "BUFF_DAMAGE_BY_TAG", "BUFF_DAMAGE_BY_ATTACHED_ENERGY"}
 ONLINE_EQUIPMENT_ON_EQUIP_EFFECTS = {
-    "HEAL", "HEAL_SELF", "HEAL_ACTIVE", "HEAL_EQUIPPED_CARD",
+    "HEAL", "HEAL_SELF", "HEAL_ACTIVE", "HEAL_EQUIPPED_CARD", "ENERGY_GAIN",
     "ADD_ENERGY", "ADD_TYPED_ENERGY", "ADD_ENERGY_TO_ACTIVE", "ADD_MULTIPLE_ENERGY",
-    "BURN", "PARALYZE", "FREEZE", "CONFUSE", "PREVENT_ATTACK", "PREVENT_RETREAT",
+    "APPLY_CONDITION", "BLOCK_ACTION", "BURN", "PARALYZE", "FREEZE", "CONFUSE", "PREVENT_ATTACK", "PREVENT_RETREAT",
     "SKIP_NEXT_ATTACK", "CANNOT_USE_SAME_ATTACK_NEXT_TURN",
     "BUFF_BASE_ATTRIBUTES", "INCREASE_MAX_HP", "BUFF_HEAL_AMOUNT",
     "DOUBLE_DAMAGE_AGAINST_TYPE", "WEAKNESS_OVERRIDE", "ALPHA_POINT_OVERRIDE",
     "REDUCE_DAMAGE", "REDUCE_NEXT_DAMAGE", "PREVENT_DAMAGE", "IMMUNE_TO_DAMAGE_TYPE",
     "IMMUNE_TO_NEGATIVE_EFFECTS", "IGNORE_TOOL_EFFECTS", "HALVE_DAMAGE_TAKEN",
-    "REFLECT_DAMAGE", "REFLECT_DOUBLE_DAMAGE", "REDIRECT_DAMAGE", "SHARE_DAMAGE",
+    "IMMUNITY", "DAMAGE_REDIRECT", "REFLECT_DAMAGE", "REFLECT_DOUBLE_DAMAGE", "REDIRECT_DAMAGE", "SHARE_DAMAGE",
     "ENERGY_ANY_TYPE", "ENERGY_COST_REDUCTION", "ENERGY_REQUIRED_TYPE",
     "IGNORE_RETREAT_COST", "REDUCE_RETREAT_COST", "BLOCK_RETREAT", "ATTACK_FROM_BENCH",
 }
@@ -1603,7 +1623,7 @@ def _online_apply_buff(card: dict, effect: dict) -> dict:
     amount = max(0, int(effect.get("amount") or 0))
     effect_type = effect.get("type")
     updated = copy.deepcopy(card)
-    if effect_type in ["BUFF_DAMAGE", "BUFF_DAMAGE_THIS_TURN", "BUFF_DAMAGE_NEXT_TURN", "BUFF_EQUIPPED_CARD_DAMAGE", "BUFF_DAMAGE_BY_TAG", "BUFF_DAMAGE_BY_ATTACHED_ENERGY"]:
+    if effect_type in ["DAMAGE_MODIFIER", "BUFF_DAMAGE", "BUFF_DAMAGE_THIS_TURN", "BUFF_DAMAGE_NEXT_TURN", "BUFF_EQUIPPED_CARD_DAMAGE", "BUFF_DAMAGE_BY_TAG", "BUFF_DAMAGE_BY_ATTACHED_ENERGY"]:
         updated["bonus_damage"] = int(updated.get("bonus_damage") or 0) + amount
     elif effect_type in ["BUFF_BASE_ATTRIBUTES", "INCREASE_MAX_HP"]:
         updated["hp"] = int(updated.get("hp") or 0) + amount
@@ -1635,7 +1655,13 @@ def _online_apply_immunity(card: dict, effect: dict) -> dict:
     effect_type = effect.get("type")
     amount = max(0, int(effect.get("amount") or 0))
     updated = copy.deepcopy(card)
-    if effect_type == "IMMUNE_TO_DAMAGE_TYPE":
+    if effect_type == "IMMUNITY":
+        updated["immune_to_damage_type"] = effect.get("damage_type") or effect.get("nature") or effect.get("tag") or "ANY"
+        if effect.get("applies_to") == "NEGATIVE_EFFECTS":
+            updated["immune_to_negative_effects"] = True
+    elif effect_type == "DAMAGE_REDIRECT":
+        updated["redirect_damage"] = True
+    elif effect_type == "IMMUNE_TO_DAMAGE_TYPE":
         updated["immune_to_damage_type"] = effect.get("nature") or effect.get("tag") or "ANY"
     elif effect_type == "IMMUNE_TO_NEGATIVE_EFFECTS":
         updated["immune_to_negative_effects"] = True
@@ -1662,8 +1688,16 @@ def _resolve_online_special_effect(state: dict, side: str, source_card: Optional
     opponent_side = _opponent_side(side)
     source_ref = _online_infer_source_ref(next_state, side, source_card)
 
-    if effect.get("type") == "TRANSFORM_INTO_OPPONENT_BENCH_CARD":
-        template = (next_state["players"][opponent_side].get("bench") or [None])[0]
+    if effect.get("type") in ["TRANSFORM", "TRANSFORM_INTO_OPPONENT_BENCH_CARD"]:
+        template = (
+            next((card for card in [
+                *next_state["players"][side].get("hand", []),
+                *next_state["players"][side].get("deck", []),
+                *next_state["players"][opponent_side].get("bench", []),
+            ] if not effect.get("card_name") or card.get("name") == effect.get("card_name")), None)
+            if effect.get("type") == "TRANSFORM"
+            else (next_state["players"][opponent_side].get("bench") or [None])[0]
+        )
         current = _online_ref_card(next_state, source_ref)
         if not template or not source_ref or not current:
             return next_state
@@ -1675,6 +1709,22 @@ def _resolve_online_special_effect(state: dict, side: str, source_card: Optional
         transformed["transformed_from"] = current.get("name")
         next_state = _online_set_ref_card(next_state, source_ref, transformed)
         return _with_duel_log(next_state, f"{current.get('name')} se transformou em {template.get('name')}.")
+
+    if effect.get("type") == "REVIVE":
+        player = next_state["players"][side]
+        discard = player.get("discard") or []
+        index = next((idx for idx, card in enumerate(discard) if (
+            (not effect.get("card_name") or card.get("name") == effect.get("card_name")) and
+            (not effect.get("card_type") or card.get("card_type") == effect.get("card_type"))
+        )), -1)
+        if index < 0:
+            return next_state
+        card = discard.pop(index)
+        player["discard"] = discard
+        player.setdefault("deck", []).append(_card_without_equipments(card))
+        random.shuffle(player["deck"])
+        next_state["players"][side] = player
+        return _with_duel_log(next_state, f"{player.get('name')} devolveu uma carta do cemiterio ao deck.")
 
     if effect.get("type") == "ABSORB_OWN_BENCH_CARD":
         active = next_state["players"][side].get("active")
@@ -1713,6 +1763,7 @@ def _resolve_online_effects(state: dict, side: str, source_card: Optional[dict],
     context = context or {}
     next_state = copy.deepcopy(state)
     source_ref = context.get("source_ref") or _online_infer_source_ref(next_state, side, source_card)
+    opponent_side = _opponent_side(side)
     damage_dealt = 0
 
     for effect in _online_effects(effects):
@@ -1720,8 +1771,15 @@ def _resolve_online_effects(state: dict, side: str, source_card: Optional[dict],
         if effect.get("condition") and context.get("trigger") and effect.get("condition") != context.get("trigger"):
             continue
 
-        if effect_type in ["TRANSFORM_INTO_OPPONENT_BENCH_CARD", "ABSORB_OWN_BENCH_CARD", "CREATE_TEMPORARY_UNIT", "PLAY_ITEM_AS_UNIT"]:
+        if effect_type in ["TRANSFORM", "REVIVE", "TRANSFORM_INTO_OPPONENT_BENCH_CARD", "ABSORB_OWN_BENCH_CARD", "CREATE_TEMPORARY_UNIT", "PLAY_ITEM_AS_UNIT"]:
             next_state = _resolve_online_special_effect(next_state, side, source_card, effect)
+            continue
+
+        if effect_type in ["COPY_ITEM", "COPY_OPPONENT_ITEM"]:
+            item = next((card for card in [*next_state["players"][opponent_side].get("discard", []), *next_state["players"][opponent_side].get("hand", [])] if card.get("card_type") == "Item"), None)
+            if item:
+                next_state = _resolve_online_effects(next_state, side, item, item.get("effects") or [], {"suppress_rule_triggers": True})
+                next_state = _with_duel_log(next_state, f"{next_state['players'][side].get('name')} copiou {item.get('name')}.")
             continue
 
         if effect_type in ["DRAW_CARD", "DRAW_MULTIPLE"]:
@@ -1879,10 +1937,29 @@ def _resolve_online_effects(state: dict, side: str, source_card: Optional[dict],
                 if effect_type == "HALVE_DAMAGE_TAKEN":
                     target["next_damage_multiplier"] = 0.5
                 next_state = _online_set_ref_card(next_state, ref, target)
+            elif effect_type == "REMOVE_CONDITION":
+                status = str(effect.get("condition_type") or "").lower()
+                target["status_effects"] = [
+                    current for current in (target.get("status_effects") or [])
+                    if status and current != status
+                ] if status else []
+                next_state = _online_set_ref_card(next_state, ref, target)
             elif effect_type in ONLINE_STATUS_EFFECTS:
-                next_state = _online_set_ref_card(next_state, ref, _online_add_status(target, ONLINE_STATUS_BY_EFFECT.get(effect_type, effect_type.lower())))
+                status = ONLINE_STATUS_BY_EFFECT.get(effect_type)
+                if not status:
+                    status = str(effect.get("condition_type") or ("prevent_attack" if effect_type == "BLOCK_ACTION" else effect_type)).lower()
+                next_state = _online_set_ref_card(next_state, ref, _online_add_status(target, status))
             elif effect_type in ONLINE_IMMUNITY_EFFECTS:
                 next_state = _online_set_ref_card(next_state, ref, _online_apply_immunity(target, effect))
+            elif (
+                effect_type == "DAMAGE_MODIFIER"
+                and context.get("damage_target_ref")
+                and context["damage_target_ref"].get("side") == ref.get("side")
+                and context["damage_target_ref"].get("zone") == ref.get("zone")
+                and context["damage_target_ref"].get("index") == ref.get("index")
+            ):
+                target["pending_damage_reduction"] = max(int(target.get("pending_damage_reduction") or 0), amount)
+                next_state = _online_set_ref_card(next_state, ref, target)
             elif effect_type in ONLINE_BUFF_EFFECTS:
                 next_state = _online_set_ref_card(next_state, ref, _online_apply_buff(target, effect))
 
@@ -2009,7 +2086,7 @@ def _online_ability_effects_for_trigger(state: dict, side: str, source_ref: dict
     source_card = _online_ref_card(state, source_ref)
     effects = []
     for rule in rules:
-        if rule.get("trigger") != trigger:
+        if not _online_rule_trigger_matches(rule.get("trigger"), trigger, source_ref):
             continue
         rule_context = {
             **context,
@@ -2019,6 +2096,24 @@ def _online_ability_effects_for_trigger(state: dict, side: str, source_ref: dict
         if all(_online_rule_condition_matches(state, condition, rule_context) for condition in rule.get("conditions") or []):
             effects.extend(rule.get("effects") or [])
     return _online_effects(effects)
+
+
+def _online_rule_trigger_matches(rule_trigger: Optional[str], trigger: str, source_ref: Optional[dict]) -> bool:
+    if rule_trigger == trigger:
+        return True
+    if rule_trigger == "ON_RECEIVE_DAMAGE":
+        return trigger in ["BEFORE_DAMAGE_TAKEN", "ON_DAMAGE_TAKEN"]
+    if rule_trigger == "ON_KO":
+        return trigger in ["BEFORE_KNOCKOUT", "AFTER_KNOCKOUT"]
+    if rule_trigger == "ON_OPPONENT_KO":
+        return trigger in ["ON_KNOCKOUT", "AFTER_KNOCKOUT"]
+    if rule_trigger == "INTERRUPT":
+        return trigger in ["BEFORE_DAMAGE_TAKEN", "BEFORE_DAMAGE_APPLIED", "BEFORE_ALLY_ACTIVE_TAKES_DAMAGE", "ALLY_ACTIVE_WOULD_BE_KNOCKED_OUT"]
+    if rule_trigger == "PASSIVE_ACTIVE":
+        return (source_ref or {}).get("zone") == "active" and trigger in ["ON_TURN_START", "BEFORE_DAMAGE_TAKEN", "BEFORE_DAMAGE_APPLIED", "ON_DAMAGE_TAKEN"]
+    if rule_trigger == "PASSIVE_BENCH":
+        return (source_ref or {}).get("zone") == "bench" and trigger in ["ON_TURN_START", "BEFORE_DAMAGE_TAKEN", "BEFORE_DAMAGE_APPLIED", "BEFORE_ALLY_ACTIVE_TAKES_DAMAGE"]
+    return False
 
 
 def _online_rule_card_refs_for_side(state: dict, side: str) -> list[dict]:
@@ -2047,7 +2142,7 @@ def _resolve_online_ability_rules_for_side(state: dict, side: str, trigger: str,
             continue
         for ability in _online_automatic_abilities(source_card):
             for rule in ability.get("rules") or []:
-                if rule.get("trigger") != trigger:
+                if not _online_rule_trigger_matches(rule.get("trigger"), trigger, source_ref):
                     continue
                 rule_context = {
                     **context,

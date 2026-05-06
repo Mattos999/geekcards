@@ -11,6 +11,8 @@ import {
   ABILITY_POSITION_OPTIONS,
   ABILITY_TRIGGER_LABELS,
   ABILITY_TRIGGERS,
+  ACTIVE_CONDITION_LABELS,
+  ACTIVE_CONDITION_TYPES,
   CARD_META_AGES,
   CARD_META_AGE_LABELS,
   CARD_META_KEYS,
@@ -105,6 +107,18 @@ const EFFECT_ATTRIBUTES = [
 const DEFAULT_EFFECT_FIELDS = ["target", "duration", "amount"];
 
 const EFFECT_FIELD_CONFIG = {
+  [EFFECT_TYPES.DAMAGE_MODIFIER]: ["target", "amount", "value_formula", "priority", "duration", "dice_type", "dice_condition", "description"],
+  [EFFECT_TYPES.APPLY_CONDITION]: ["target", "condition_type", "amount", "duration", "dice_type", "dice_condition", "priority", "description"],
+  [EFFECT_TYPES.REMOVE_CONDITION]: ["target", "condition_type", "priority", "description"],
+  [EFFECT_TYPES.ENERGY_GAIN]: ["target", "energy_type", "amount", "dice_type", "dice_condition", "priority", "description"],
+  [EFFECT_TYPES.ENERGY_REMOVE]: ["target", "energy_type", "amount", "random", "priority", "description"],
+  [EFFECT_TYPES.FORCE_RETREAT]: ["target", "priority", "description"],
+  [EFFECT_TYPES.DAMAGE_REDIRECT]: ["target", "priority", "description"],
+  [EFFECT_TYPES.IMMUNITY]: ["target", "nature", "tag", "damage_type", "applies_to", "duration", "priority", "description"],
+  [EFFECT_TYPES.BLOCK_ACTION]: ["target", "condition_type", "duration", "priority", "description"],
+  [EFFECT_TYPES.REVIVE]: ["target", "card_name", "card_type", "priority", "description"],
+  [EFFECT_TYPES.TRANSFORM]: ["target", "card_name", "keep_negative_effects", "priority", "description"],
+  [EFFECT_TYPES.COPY_ITEM]: ["target", "priority", "description"],
   [EFFECT_TYPES.DAMAGE]: ["target", "amount"],
   [EFFECT_TYPES.DAMAGE_RANDOM_TARGETS]: ["target", "amount", "random_targets_count"],
   [EFFECT_TYPES.DAMAGE_ANY_TARGET]: ["target", "amount", "allow_manual_target"],
@@ -239,6 +253,18 @@ const EFFECT_FIELD_CONFIG = {
 
 const effectFieldsFor = type => EFFECT_FIELD_CONFIG[type] ?? DEFAULT_EFFECT_FIELDS;
 
+const defaultTargetForEffect = type => {
+  if ([
+    EFFECT_TYPES.DAMAGE_MODIFIER,
+    EFFECT_TYPES.ENERGY_GAIN,
+    EFFECT_TYPES.DAMAGE_REDIRECT,
+    EFFECT_TYPES.IMMUNITY,
+    EFFECT_TYPES.BLOCK_ACTION,
+    EFFECT_TYPES.REMOVE_CONDITION,
+  ].includes(type)) return TARGETS.SELF_ACTIVE;
+  return TARGETS.OPPONENT_ACTIVE;
+};
+
 const sanitizeEffectDraft = effect => {
   if (!effect?.type) return null;
 
@@ -250,6 +276,12 @@ const sanitizeEffectDraft = effect => {
     target: fields.includes("target") ? (effect.target || "") : "",
     duration: effect.duration || DURATIONS.INSTANT,
     amount: parseInt(effect.amount, 10) || 0,
+    priority: Math.max(0, parseInt(effect.priority, 10) || 10),
+    value_formula: fields.includes("value_formula") ? (effect.value_formula || effect.valueFormula || "") : "",
+    dice_type: fields.includes("dice_type") ? (effect.dice_type || effect.diceType || "") : "",
+    dice_condition: fields.includes("dice_condition") ? (effect.dice_condition || effect.diceCondition || "") : "",
+    condition_type: fields.includes("condition_type") ? (effect.condition_type || effect.conditionType || "") : "",
+    description: fields.includes("description") ? (effect.description || "") : "",
   };
 };
 
@@ -459,6 +491,12 @@ const EffectControls = ({ effect, onChange, onAdd }) => {
     reset_on_miss: "Zerar ao errar",
     applies_to_tag: "Tag afetada",
     applies_to_nature: "Natureza afetada",
+    priority: "Prioridade",
+    value_formula: "Formula",
+    dice_type: "Dado",
+    dice_condition: "Condicao do dado",
+    condition_type: "Condicao de status",
+    description: "Descricao do efeito",
   };
 
   return (
@@ -570,6 +608,49 @@ const EffectControls = ({ effect, onChange, onAdd }) => {
           </label>
         ))}
 
+        {show("priority") && (
+          <label className="min-w-[11rem] flex-[1_1_13rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">{fieldLabels.priority}</span>
+            <input type="number" min={0} value={effect.priority ?? 10} onChange={e => onChange("priority", parseInt(e.target.value, 10) || 0)} className={`${inputCls} font-mono`} />
+          </label>
+        )}
+
+        {show("condition_type") && (
+          <label className="min-w-[13rem] flex-[1_1_14rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">{fieldLabels.condition_type}</span>
+            <select value={effect.condition_type || ""} onChange={e => onChange("condition_type", e.target.value)} className={inputCls}>
+              <option value="">Selecione</option>
+              {Object.values(ACTIVE_CONDITION_TYPES).map(type => (
+                <option key={type} value={type}>{ACTIVE_CONDITION_LABELS[type]}</option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        {show("dice_type") && (
+          <label className="min-w-[11rem] flex-[1_1_13rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">{fieldLabels.dice_type}</span>
+            <select value={effect.dice_type || ""} onChange={e => onChange("dice_type", e.target.value)} className={inputCls}>
+              <option value="">Nenhum</option>
+              {["D4", "D6", "COIN"].map(type => <option key={type} value={type}>{type}</option>)}
+            </select>
+          </label>
+        )}
+
+        {show("dice_condition") && (
+          <label className="min-w-[14rem] flex-[1_1_16rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">{fieldLabels.dice_condition}</span>
+            <input value={effect.dice_condition || ""} onChange={e => onChange("dice_condition", e.target.value)} className={inputCls} placeholder="Ex: result > 3" />
+          </label>
+        )}
+
+        {show("value_formula") && (
+          <label className="min-w-[16rem] flex-[2_1_20rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">{fieldLabels.value_formula}</span>
+            <input value={effect.value_formula || ""} onChange={e => onChange("value_formula", e.target.value)} className={inputCls} placeholder="Ex: benchCount * 10" />
+          </label>
+        )}
+
         {show("energy_owner") && (
           <label className="min-w-[11rem] flex-[1_1_13rem]">
             <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">{fieldLabels.energy_owner}</span>
@@ -638,6 +719,13 @@ const EffectControls = ({ effect, onChange, onAdd }) => {
             <input value={effect[field] || ""} onChange={e => onChange(field, e.target.value)} className={inputCls} />
           </label>
         ))}
+
+        {show("description") && (
+          <label className="min-w-[18rem] flex-[2_1_24rem]">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">{fieldLabels.description}</span>
+            <input value={effect.description || ""} onChange={e => onChange("description", e.target.value)} className={inputCls} placeholder="Texto usado no resumo/evento do efeito" />
+          </label>
+        )}
 
         {["allow_manual_target", "per_count", "random", "absorb_hp", "absorb_damage", "absorb_energy", "keep_negative_effects", "reset_on_miss"].filter(show).map(field => (
           <label key={field} className="flex min-h-10 min-w-[12rem] flex-[1_1_12rem] items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs text-slate-300">
@@ -903,7 +991,7 @@ export default function CardBuilderPage() {
           ...BLANK_EFFECT,
           type: value,
           target: effectFieldsFor(value).includes("target")
-            ? TARGETS.OPPONENT_ACTIVE
+            ? defaultTargetForEffect(value)
             : "",
         },
       };
@@ -1018,7 +1106,7 @@ export default function CardBuilderPage() {
             ...BLANK_EFFECT,
             type: value,
             target: effectFieldsFor(value).includes("target")
-              ? TARGETS.OPPONENT_ACTIVE
+              ? defaultTargetForEffect(value)
               : "",
           },
         },
@@ -1168,7 +1256,7 @@ export default function CardBuilderPage() {
             effect_to_add: {
               ...BLANK_EFFECT,
               type: value,
-              target: effectFieldsFor(value).includes("target") ? TARGETS.SELF_ACTIVE : "",
+              target: effectFieldsFor(value).includes("target") ? defaultTargetForEffect(value) : "",
             },
           },
         };

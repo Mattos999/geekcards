@@ -1,4 +1,16 @@
 export const EFFECT_TYPES = {
+  DAMAGE_MODIFIER: "DAMAGE_MODIFIER",
+  APPLY_CONDITION: "APPLY_CONDITION",
+  REMOVE_CONDITION: "REMOVE_CONDITION",
+  ENERGY_GAIN: "ENERGY_GAIN",
+  ENERGY_REMOVE: "ENERGY_REMOVE",
+  FORCE_RETREAT: "FORCE_RETREAT",
+  DAMAGE_REDIRECT: "DAMAGE_REDIRECT",
+  IMMUNITY: "IMMUNITY",
+  BLOCK_ACTION: "BLOCK_ACTION",
+  REVIVE: "REVIVE",
+  TRANSFORM: "TRANSFORM",
+  COPY_ITEM: "COPY_ITEM",
   DAMAGE: "DAMAGE",
   DAMAGE_RANDOM_TARGETS: "DAMAGE_RANDOM_TARGETS",
   DAMAGE_ANY_TARGET: "DAMAGE_ANY_TARGET",
@@ -137,6 +149,18 @@ const labelFromValue = value => value
   .join(" ");
 
 export const EFFECT_TYPE_LABELS = {
+  [EFFECT_TYPES.DAMAGE_MODIFIER]: "Modificar dano",
+  [EFFECT_TYPES.APPLY_CONDITION]: "Aplicar condicao",
+  [EFFECT_TYPES.REMOVE_CONDITION]: "Remover condicao",
+  [EFFECT_TYPES.ENERGY_GAIN]: "Ganhar energia",
+  [EFFECT_TYPES.ENERGY_REMOVE]: "Remover energia",
+  [EFFECT_TYPES.FORCE_RETREAT]: "Forcar recuo",
+  [EFFECT_TYPES.DAMAGE_REDIRECT]: "Redirecionar dano",
+  [EFFECT_TYPES.IMMUNITY]: "Imunidade",
+  [EFFECT_TYPES.BLOCK_ACTION]: "Bloquear acao",
+  [EFFECT_TYPES.REVIVE]: "Reviver carta",
+  [EFFECT_TYPES.TRANSFORM]: "Transformar",
+  [EFFECT_TYPES.COPY_ITEM]: "Copiar item",
   [EFFECT_TYPES.DAMAGE]: "Dano",
   [EFFECT_TYPES.DAMAGE_RANDOM_TARGETS]: "Dano em alvo aleatorio",
   [EFFECT_TYPES.DAMAGE_ANY_TARGET]: "Dano em qualquer alvo",
@@ -270,6 +294,11 @@ export const EFFECT_TYPE_LABELS = {
 };
 
 export const TARGETS = {
+  ACTIVE: "ACTIVE",
+  BENCH: "BENCH",
+  ANY: "ANY",
+  ALL_ENEMY: "ALL_ENEMY",
+  ALL_ALLY: "ALL_ALLY",
   SELF: "SELF",
   SELF_ACTIVE: "SELF_ACTIVE",
   SELF_BENCH: "SELF_BENCH",
@@ -292,6 +321,11 @@ export const TARGETS = {
 };
 
 export const TARGET_LABELS = {
+  [TARGETS.ACTIVE]: "Ativa",
+  [TARGETS.BENCH]: "Banco",
+  [TARGETS.ANY]: "Qualquer alvo",
+  [TARGETS.ALL_ENEMY]: "Todos inimigos",
+  [TARGETS.ALL_ALLY]: "Todos aliados",
   [TARGETS.SELF]: "Voce",
   [TARGETS.SELF_ACTIVE]: "Sua ativa",
   [TARGETS.SELF_BENCH]: "Seu banco",
@@ -358,6 +392,7 @@ export const EFFECT_CONDITION_LABELS = {
 };
 
 export const EQUIPMENT_DAMAGE_BONUS_EFFECT_TYPES = new Set([
+  EFFECT_TYPES.DAMAGE_MODIFIER,
   EFFECT_TYPES.BUFF_DAMAGE,
   EFFECT_TYPES.BUFF_DAMAGE_THIS_TURN,
   EFFECT_TYPES.BUFF_DAMAGE_NEXT_TURN,
@@ -367,6 +402,12 @@ export const EQUIPMENT_DAMAGE_BONUS_EFFECT_TYPES = new Set([
 ]);
 
 export const EQUIPMENT_ON_EQUIP_EFFECT_TYPES = new Set([
+  EFFECT_TYPES.HEAL,
+  EFFECT_TYPES.ENERGY_GAIN,
+  EFFECT_TYPES.APPLY_CONDITION,
+  EFFECT_TYPES.DAMAGE_MODIFIER,
+  EFFECT_TYPES.IMMUNITY,
+  EFFECT_TYPES.BLOCK_ACTION,
   EFFECT_TYPES.HEAL,
   EFFECT_TYPES.HEAL_SELF,
   EFFECT_TYPES.HEAL_ACTIVE,
@@ -411,6 +452,15 @@ export const EQUIPMENT_ON_EQUIP_EFFECT_TYPES = new Set([
 
 export const ABILITY_TRIGGERS = {
   ON_ATTACK: "ON_ATTACK",
+  ON_RECEIVE_DAMAGE: "ON_RECEIVE_DAMAGE",
+  ON_KO: "ON_KO",
+  ON_OPPONENT_KO: "ON_OPPONENT_KO",
+  PASSIVE_ACTIVE: "PASSIVE_ACTIVE",
+  PASSIVE_BENCH: "PASSIVE_BENCH",
+  ON_ITEM_USE: "ON_ITEM_USE",
+  ON_RETREAT: "ON_RETREAT",
+  ON_ENTER_ACTIVE: "ON_ENTER_ACTIVE",
+  INTERRUPT: "INTERRUPT",
   BEFORE_DAMAGE_TAKEN: "BEFORE_DAMAGE_TAKEN",
   BEFORE_DAMAGE_APPLIED: "BEFORE_DAMAGE_APPLIED",
   BEFORE_ALLY_ACTIVE_TAKES_DAMAGE: "BEFORE_ALLY_ACTIVE_TAKES_DAMAGE",
@@ -428,6 +478,15 @@ export const ABILITY_TRIGGERS = {
 
 export const ABILITY_TRIGGER_LABELS = {
   [ABILITY_TRIGGERS.ON_ATTACK]: "Ao atacar",
+  [ABILITY_TRIGGERS.ON_RECEIVE_DAMAGE]: "Ao receber dano",
+  [ABILITY_TRIGGERS.ON_KO]: "Ao ser nocauteada",
+  [ABILITY_TRIGGERS.ON_OPPONENT_KO]: "Ao nocautear oponente",
+  [ABILITY_TRIGGERS.PASSIVE_ACTIVE]: "Passiva na ativa",
+  [ABILITY_TRIGGERS.PASSIVE_BENCH]: "Passiva no banco",
+  [ABILITY_TRIGGERS.ON_ITEM_USE]: "Ao usar item",
+  [ABILITY_TRIGGERS.ON_RETREAT]: "Ao recuar",
+  [ABILITY_TRIGGERS.ON_ENTER_ACTIVE]: "Ao entrar na ativa",
+  [ABILITY_TRIGGERS.INTERRUPT]: "Interrupcao",
   [ABILITY_TRIGGERS.BEFORE_DAMAGE_TAKEN]: "Antes de receber dano",
   [ABILITY_TRIGGERS.BEFORE_DAMAGE_APPLIED]: "Antes de aplicar dano",
   [ABILITY_TRIGGERS.BEFORE_ALLY_ACTIVE_TAKES_DAMAGE]: "Antes da ativa aliada receber dano",
@@ -503,6 +562,24 @@ export const COMMON_META_ELEMENTS = ["AGUA", "FOGO", "GELO", "TERRA", "VENTO", "
 export const COMMON_META_WEAPONS = ["ESPADA", "VARINHA", "PISTOLA", "ARCO", "LANCA", "ESCUDO", "KUNAI", "BASTAO"];
 export const COMMON_META_STYLES = ["LOGIA", "MAGIA", "TECNOLOGIA", "NINJUTSU", "TAIJUTSU", "ESPIRITUAL", "MARCIAL"];
 export const CARD_META_KEYS = ["age", "elements", "weapon", "style", "tags"];
+
+export const ACTIVE_CONDITION_TYPES = {
+  POISON: "POISON",
+  BURN: "BURN",
+  PARALYSIS: "PARALYSIS",
+  FREEZE: "FREEZE",
+  CONFUSED: "CONFUSED",
+  SLEEP: "SLEEP",
+};
+
+export const ACTIVE_CONDITION_LABELS = {
+  [ACTIVE_CONDITION_TYPES.POISON]: "Veneno",
+  [ACTIVE_CONDITION_TYPES.BURN]: "Queimadura",
+  [ACTIVE_CONDITION_TYPES.PARALYSIS]: "Paralisia",
+  [ACTIVE_CONDITION_TYPES.FREEZE]: "Congelado",
+  [ACTIVE_CONDITION_TYPES.CONFUSED]: "Confuso",
+  [ACTIVE_CONDITION_TYPES.SLEEP]: "Sono",
+};
 
 export const ABILITY_POSITION_VALUES = {
   ACTIVE: "ACTIVE",
@@ -596,6 +673,12 @@ export const advancedEffectExtraFields = {
   applies_to_nature: "",
   meta_key: "",
   meta_value: "",
+  priority: 10,
+  value_formula: "",
+  dice_type: "",
+  dice_condition: "",
+  condition_type: "",
+  description: "",
 };
 
 export const normalizeEffects = effects => (
@@ -647,6 +730,12 @@ export const normalizeEffects = effects => (
           applies_to_nature: effect.applies_to_nature || "",
           meta_key: effect.meta_key || "",
           meta_value: effect.meta_value || "",
+          priority: Math.max(0, parseInt(effect.priority, 10) || 10),
+          value_formula: effect.value_formula || effect.valueFormula || "",
+          dice_type: effect.dice_type || effect.diceType || "",
+          dice_condition: effect.dice_condition || effect.diceCondition || "",
+          condition_type: effect.condition_type || effect.conditionType || "",
+          description: effect.description || "",
         }))
     : []
 );
@@ -690,6 +779,10 @@ export const effectSummary = effect => {
     Array.isArray(effect.tags) ? effect.tags.join(", ") : "",
     effect.card_type,
     effect.meta_key && effect.meta_value ? `${effect.meta_key}: ${effect.meta_value}` : "",
+    effect.condition_type ? ACTIVE_CONDITION_LABELS[effect.condition_type] || effect.condition_type : "",
+    effect.dice_type,
+    effect.value_formula,
+    effect.description,
   ].filter(Boolean);
   const extra = details.length ? ` | ${details.join(" / ")}` : "";
   return `${type}${amount} - ${target}${duration}${condition}${extra}`;
