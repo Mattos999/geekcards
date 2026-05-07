@@ -253,6 +253,9 @@ class OnlineDuelAction(BaseModel):
     target_index: int = 0
     ability_index: Optional[int] = None
     selected_target_ref: Optional[dict] = None
+    damage_reaction_key: Optional[str] = None
+    damage_reaction_keys: Optional[List[str]] = None
+    selected_target_refs_by_reaction_key: Optional[dict] = None
     activate_reaction: Optional[bool] = None
 
 
@@ -1397,6 +1400,12 @@ def _online_public_pending_reaction(pending: Optional[dict], viewer_side: str) -
     if not pending:
         return None
     can_respond = pending.get("defending_side") == viewer_side
+    reactions = []
+    for reaction in pending.get("reactions") or []:
+        reactions.append({
+            **reaction,
+            "choices": [_online_public_ref(ref, viewer_side) for ref in (reaction.get("choices") or [])],
+        })
     return {
         **pending,
         "attacking_side": "player" if pending.get("attacking_side") == viewer_side else "opponent",
@@ -1404,6 +1413,7 @@ def _online_public_pending_reaction(pending: Optional[dict], viewer_side: str) -
         "damage_target_ref": _online_public_ref(pending.get("damage_target_ref"), viewer_side),
         "damage_source_ref": _online_public_ref(pending.get("damage_source_ref"), viewer_side),
         "choices": [_online_public_ref(ref, viewer_side) for ref in (pending.get("choices") or [])],
+        "reactions": reactions,
         "can_respond": can_respond,
     }
 
@@ -1608,6 +1618,18 @@ def _online_selected_ref_from_action(action: OnlineDuelAction, side: str) -> Opt
     }
 
 
+def _online_selected_refs_by_reaction_key_from_action(action: OnlineDuelAction, side: str) -> dict:
+    refs = {}
+    for key, ref in (action.selected_target_refs_by_reaction_key or {}).items():
+        selected_ref = _online_selected_ref_from_action(
+            OnlineDuelAction(kind=action.kind, selected_target_ref=ref),
+            side,
+        )
+        if selected_ref:
+            refs[str(key)] = selected_ref
+    return refs
+
+
 def _online_manual_target_selection(state: dict, side: str, effect: dict, context: Optional[dict] = None) -> Optional[dict]:
     context = context or {}
     target = effect.get("target") or "OPPONENT_ACTIVE"
@@ -1723,24 +1745,36 @@ def _online_pending_attack_reaction(state: dict, attacking_side: str, ability_in
     if damage_amount <= 0:
         return None
     options = _online_damage_reaction_options(state, defending_side, damage_target_ref, source_ref, damage_amount)
-    option = next((candidate for candidate in options if any(_online_effect_needs_manual_target(effect) for effect in _online_effects((candidate.get("rule") or {}).get("effects")))), None)
-    if not option:
+    reactions = []
+    for option in options:
+        effects = _online_effects((option.get("rule") or {}).get("effects"))
+        effect = next((item for item in effects if _online_effect_needs_manual_target(item)), None)
+        choices = _online_manual_choices_for_effect(state, defending_side, effect) if effect else []
+        if not effect or choices:
+            reactions.append({
+                "reaction_key": option["reaction_key"],
+                "source_name": (option.get("source_card") or {}).get("name"),
+                "ability_name": (option.get("ability") or {}).get("name"),
+                "effect": effect,
+                "choices": choices,
+                "requires_target": bool(effect),
+            })
+    if not reactions:
         return None
-    effect = next(effect for effect in _online_effects((option.get("rule") or {}).get("effects")) if _online_effect_needs_manual_target(effect))
-    choices = _online_manual_choices_for_effect(state, defending_side, effect)
-    if not choices:
-        return None
+    first = reactions[0]
     return {
         "id": str(uuid.uuid4()),
         "kind": "damage_reaction",
         "attacking_side": attacking_side,
         "defending_side": defending_side,
         "ability_index": ability_index,
-        "reaction_key": option["reaction_key"],
-        "source_name": (option.get("source_card") or {}).get("name"),
-        "ability_name": (option.get("ability") or {}).get("name"),
-        "effect": effect,
-        "choices": choices,
+        "reaction_key": first["reaction_key"],
+        "source_name": first.get("source_name"),
+        "ability_name": first.get("ability_name"),
+        "effect": first.get("effect"),
+        "choices": first.get("choices") or [],
+        "requires_target": first.get("requires_target"),
+        "reactions": reactions,
         "damage_source_ref": source_ref,
         "damage_target_ref": damage_target_ref,
     }
@@ -2204,14 +2238,43 @@ def _resolve_online_effects(state: dict, side: str, source_card: Optional[dict],
                         "damage_amount": amount,
                         "would_be_knocked_out": would_be_knocked_out,
                     }
-                    for trigger in [
-                        "BEFORE_DAMAGE_TAKEN",
-                        "BEFORE_DAMAGE_APPLIED",
-                        "BEFORE_ALLY_ACTIVE_TAKES_DAMAGE" if damage_ref.get("zone") == "active" else None,
-                        "ALLY_ACTIVE_WOULD_BE_KNOCKED_OUT" if would_be_knocked_out else None,
-                    ]:
-                        if trigger:
-                            next_state = _resolve_online_ability_rules_for_side(next_state, damage_ref["side"], trigger, reaction_context)
+                    selected_reaction_keys = context.get("selected_damage_reaction_keys") or ([context.get("selected_damage_reaction_key")] if context.get("selected_damage_reaction_key") else [])
+                    if selected_reaction_keys:
+                        used_reaction_keys = context.setdefault("used_damage_reaction_keys", set())
+                        while True:
+                            options = _online_damage_reaction_options(next_state, damage_ref["side"], damage_ref, source_ref, amount, reaction_context)
+                            selected = next((option for option in options if option.get("reaction_key") in selected_reaction_keys and option.get("reaction_key") not in used_reaction_keys), None)
+                            if not selected:
+                                break
+                            selected_key = selected.get("reaction_key")
+                            used_reaction_keys.add(selected_key)
+                            selected_ref = (context.get("selected_target_refs_by_reaction_key") or {}).get(selected_key)
+                            selected_context = {**reaction_context, "selected_target_ref": selected_ref} if selected_ref else reaction_context
+                            next_state = _resolve_online_effects(
+                                next_state,
+                                selected["source_ref"]["side"],
+                                selected.get("source_card"),
+                                (selected.get("rule") or {}).get("effects") or [],
+                                {
+                                    **selected_context,
+                                    "trigger": (selected.get("rule") or {}).get("trigger"),
+                                    "source_ref": selected.get("source_ref"),
+                                    "source_card": selected.get("source_card"),
+                                    "suppress_rule_triggers": True,
+                                    "skip_damage_reactions": True,
+                                },
+                            )
+                            next_state = _with_duel_log(next_state, f"{(selected.get('source_card') or {}).get('name', 'Carta')} ativou {(selected.get('ability') or {}).get('name', 'habilidade')}.")
+                        damage_target = _online_ref_card(next_state, damage_ref) or damage_target
+                    else:
+                        for trigger in [
+                            "BEFORE_DAMAGE_TAKEN",
+                            "BEFORE_DAMAGE_APPLIED",
+                            "BEFORE_ALLY_ACTIVE_TAKES_DAMAGE" if damage_ref.get("zone") == "active" else None,
+                            "ALLY_ACTIVE_WOULD_BE_KNOCKED_OUT" if would_be_knocked_out else None,
+                        ]:
+                            if trigger:
+                                next_state = _resolve_online_ability_rules_for_side(next_state, damage_ref["side"], trigger, reaction_context)
                     damage_target = _online_ref_card(next_state, damage_ref) or damage_target
                 immune_type = damage_target.get("immune_to_damage_type")
                 if immune_type == "ANY" or (immune_type and immune_type in ((source_card or {}).get("natures") or [])):
@@ -2294,7 +2357,7 @@ def _resolve_online_effects(state: dict, side: str, source_card: Optional[dict],
                 target["attached_energy"] = energy
                 next_state = _online_set_ref_card(next_state, ref, target)
             elif effect_type in ONLINE_DEFENSE_EFFECTS:
-                target["pending_damage_reduction"] = 9999 if effect_type == "PREVENT_DAMAGE" else max(int(target.get("pending_damage_reduction") or 0), amount)
+                target["pending_damage_reduction"] = 9999 if effect_type == "PREVENT_DAMAGE" else int(target.get("pending_damage_reduction") or 0) + amount
                 if effect_type == "HALVE_DAMAGE_TAKEN":
                     target["next_damage_multiplier"] = 0.5
                 next_state = _online_set_ref_card(next_state, ref, target)
@@ -2712,6 +2775,13 @@ def _apply_online_action(state: dict, side: str, action: OnlineDuelAction, skip_
             return state
         next_state.pop("pending_reaction", None)
         selected_ref = _online_selected_ref_from_action(action, side) if action.activate_reaction else None
+        selected_refs_by_key = _online_selected_refs_by_reaction_key_from_action(action, side) if action.activate_reaction else {}
+        if selected_ref and pending.get("reaction_key") and pending.get("reaction_key") not in selected_refs_by_key:
+            selected_refs_by_key[pending["reaction_key"]] = selected_ref
+        reaction_keys = []
+        if action.activate_reaction:
+            reaction_keys = action.damage_reaction_keys or ([action.damage_reaction_key] if action.damage_reaction_key else [pending.get("reaction_key")])
+            reaction_keys = [key for key in reaction_keys if key]
         return _apply_online_action(
             next_state,
             pending["attacking_side"],
@@ -2719,6 +2789,9 @@ def _apply_online_action(state: dict, side: str, action: OnlineDuelAction, skip_
                 kind="ability",
                 ability_index=pending.get("ability_index"),
                 selected_target_ref=selected_ref,
+                damage_reaction_key=pending.get("reaction_key"),
+                damage_reaction_keys=reaction_keys,
+                selected_target_refs_by_reaction_key=selected_refs_by_key,
             ),
             skip_pending_reaction=True,
             skip_damage_reactions=not bool(action.activate_reaction),
@@ -2879,6 +2952,9 @@ def _apply_online_action(state: dict, side: str, action: OnlineDuelAction, skip_
             "source_ref": source_ref,
             "selected_target_ref": selected_ref,
             "target_override": target_ref,
+            "selected_damage_reaction_key": action.damage_reaction_key,
+            "selected_damage_reaction_keys": action.damage_reaction_keys or ([action.damage_reaction_key] if action.damage_reaction_key else []),
+            "selected_target_refs_by_reaction_key": action.selected_target_refs_by_reaction_key or {},
             "skip_damage_reactions": skip_damage_reactions,
         })
         next_state = _resolve_online_ability_rules_for_side(next_state, side, "ON_ATTACK", {

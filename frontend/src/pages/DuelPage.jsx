@@ -306,6 +306,7 @@ const ManualTargetModal = ({ request, state, onChoose, onClose, onActivate, onCa
   const choices = request?.choices || [];
   const title = request?.title || "Escolha uma carta do banco";
   const waitingForActivation = request?.confirmActivation && !request?.activationAccepted;
+  const requiresTarget = request?.requiresTarget !== false;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
@@ -314,7 +315,11 @@ const ManualTargetModal = ({ request, state, onChoose, onClose, onActivate, onCa
           <div>
             <h3 className="text-sm font-black text-slate-100">{title}</h3>
             <p className="text-xs text-slate-500">
-              {waitingForActivation ? "Deseja ativar esta habilidade?" : `${choices.length} alvo(s) valido(s)`}
+              {waitingForActivation
+                ? "Deseja ativar esta habilidade?"
+                : requiresTarget
+                  ? `${choices.length} alvo(s) valido(s)`
+                  : "Esta habilidade nao precisa escolher alvo."}
             </p>
           </div>
           <button
@@ -326,22 +331,24 @@ const ManualTargetModal = ({ request, state, onChoose, onClose, onActivate, onCa
             <X size={16} />
           </button>
         </div>
-        {waitingForActivation ? (
+        {waitingForActivation || !requiresTarget ? (
           <div className="flex flex-wrap justify-end gap-2 p-4">
             <button
               type="button"
               onClick={onClose}
               className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-300 hover:text-white"
             >
-              Nao ativar
+              {waitingForActivation ? "Nao ativar" : "Cancelar"}
             </button>
-            <button
-              type="button"
-              onClick={onActivate}
-              className="rounded-lg border border-cyan-400/40 bg-cyan-500/20 px-4 py-2 text-sm font-bold text-cyan-100 hover:bg-cyan-500/30"
-            >
-              Ativar
-            </button>
+            {waitingForActivation && (
+              <button
+                type="button"
+                onClick={onActivate}
+                className="rounded-lg border border-cyan-400/40 bg-cyan-500/20 px-4 py-2 text-sm font-bold text-cyan-100 hover:bg-cyan-500/30"
+              >
+                Ativar
+              </button>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 md:grid-cols-4">
@@ -794,38 +801,72 @@ export default function DuelPage() {
     }
 
     setManualTargetRequest(current => {
-      if (current?.kind === "online_reaction" && current.id === pending.id) return current;
-      return {
-        id: pending.id,
+      if (current?.kind === "online_reaction" && current.onlinePendingId === pending.id) return current;
+      const reactions = (pending.reactions?.length ? pending.reactions : [pending])
+        .map(reaction => ({
+          effect: reaction.effect,
+          choices: reaction.choices || [],
+          requiresTarget: reaction.requires_target !== false,
+          reactionKey: reaction.reaction_key,
+          sourceName: reaction.source_name || "Carta",
+          abilityName: reaction.ability_name || "habilidade",
+        }))
+        .filter(reaction => reaction.reactionKey && (!reaction.requiresTarget || reaction.choices.length > 0));
+      const request = buildDamageReactionRequest({
         kind: "online_reaction",
-        effect: pending.effect,
-        choices: pending.choices || [],
-        confirmActivation: true,
-        activationAccepted: false,
-        title: `${pending.source_name || "Carta"} pode ativar ${pending.ability_name || "habilidade"}.`,
-      };
+        reactions,
+      });
+      return request ? { ...request, onlinePendingId: pending.id } : null;
     });
   }, [duel?.pending_reaction, isOnlineDuel]);
 
-  const buildBotReactionRequest = (preparedState, abilityIndex) => {
-    const options = previewAttackDamageReactionOptions(preparedState, "opponent", abilityIndex);
-    const option = options.find(candidate => manualEffectForReactionOption(candidate));
-    const effect = manualEffectForReactionOption(option);
-    if (!option || !effect) return null;
-
-    const choices = manualTargetChoicesForEffect(preparedState, effect);
-    if (choices.length === 0) return null;
-
+  const buildDamageReactionRequest = ({
+    kind,
+    reactions,
+    selectedReactionKeys = [],
+    selectedTargetRefsByReactionKey = {},
+    declinedReactionKeys = [],
+  }) => {
+    const selected = new Set(selectedReactionKeys);
+    const declined = new Set(declinedReactionKeys);
+    const reaction = reactions.find(item => !selected.has(item.reactionKey) && !declined.has(item.reactionKey));
+    if (!reaction) return null;
     return {
-      id: option.reactionKey,
-      kind: "bot_reaction",
-      effect,
-      choices,
-      reactionKey: option.reactionKey,
+      id: `${kind}-${reaction.reactionKey}-${selectedReactionKeys.length}-${declinedReactionKeys.length}`,
+      kind,
+      ...reaction,
+      reactions,
+      selectedReactionKeys,
+      selectedTargetRefsByReactionKey,
+      declinedReactionKeys,
       confirmActivation: true,
       activationAccepted: false,
-      title: `${option.sourceCard?.name || "Carta"} pode ativar ${option.ability?.name || "habilidade"}. Escolha o alvo.`,
+      title: `${reaction.sourceName || "Carta"} pode ativar ${reaction.abilityName || "habilidade"}.`,
     };
+  };
+
+  const buildBotReactionRequest = (preparedState, abilityIndex) => {
+    const options = previewAttackDamageReactionOptions(preparedState, "opponent", abilityIndex);
+    const reactions = options
+      .map(option => {
+        const effect = manualEffectForReactionOption(option);
+        const requiresTarget = Boolean(effect);
+        const choices = requiresTarget ? manualTargetChoicesForEffect(preparedState, effect) : [];
+        return {
+          effect,
+          choices,
+          requiresTarget,
+          reactionKey: option.reactionKey,
+          sourceName: option.sourceCard?.name || "Carta",
+          abilityName: option.ability?.name || "habilidade",
+        };
+      })
+      .filter(item => !item.requiresTarget || item.choices.length > 0);
+    if (reactions.length === 0) return null;
+    return buildDamageReactionRequest({
+      kind: "bot_reaction",
+      reactions,
+    });
   };
 
   const applyAndBot = action => {
@@ -907,6 +948,48 @@ export default function DuelPage() {
     executeActionCard(handIndex);
   };
 
+  const resolveBotReaction = request => {
+    const selectedReactionKeys = request.selectedReactionKeys || [];
+    setDuel(current => current ? runBotTurn({ ...current, pending_reaction: null }, {
+      skipPreparation: true,
+      selectedTargetRefsByReactionKey: request.selectedTargetRefsByReactionKey || {},
+      chooseDamageReaction: ({ options }) => {
+        const index = options.findIndex(option => selectedReactionKeys.includes(option.reactionKey));
+        return index >= 0 ? index : -1;
+      },
+    }) : current);
+  };
+
+  const continueBotReactionSequence = request => {
+    const nextRequest = buildDamageReactionRequest(request);
+    if (nextRequest) {
+      setManualTargetRequest(nextRequest);
+      return;
+    }
+    setManualTargetRequest(null);
+    resolveBotReaction(request);
+  };
+
+  const resolveOnlineReaction = request => {
+    const selectedReactionKeys = request.selectedReactionKeys || [];
+    sendOnlineAction({
+      kind: "resolve_reaction",
+      activate_reaction: selectedReactionKeys.length > 0,
+      damage_reaction_keys: selectedReactionKeys,
+      selected_target_refs_by_reaction_key: request.selectedTargetRefsByReactionKey || {},
+    });
+  };
+
+  const continueOnlineReactionSequence = request => {
+    const nextRequest = buildDamageReactionRequest(request);
+    if (nextRequest) {
+      setManualTargetRequest({ ...nextRequest, onlinePendingId: request.onlinePendingId });
+      return;
+    }
+    setManualTargetRequest(null);
+    resolveOnlineReaction(request);
+  };
+
   const confirmManualTarget = ref => {
     const request = manualTargetRequest;
     setManualTargetRequest(null);
@@ -920,26 +1003,47 @@ export default function DuelPage() {
       return;
     }
     if (request.kind === "online_reaction") {
-      sendOnlineAction({
-        kind: "resolve_reaction",
-        activate_reaction: true,
-        selected_target_ref: ref,
+      continueOnlineReactionSequence({
+        ...request,
+        selectedReactionKeys: [...(request.selectedReactionKeys || []), request.reactionKey],
+        selectedTargetRefsByReactionKey: {
+          ...(request.selectedTargetRefsByReactionKey || {}),
+          [request.reactionKey]: ref,
+        },
       });
       return;
     }
     if (request.kind === "bot_reaction") {
-      setDuel(current => current ? runBotTurn({ ...current, pending_reaction: null }, {
-        skipPreparation: true,
-        selectedTargetRef: ref,
-        chooseDamageReaction: ({ options }) => {
-          const index = options.findIndex(option => option.reactionKey === request.reactionKey);
-          return index >= 0 ? index : -1;
+      continueBotReactionSequence({
+        ...request,
+        selectedReactionKeys: [...(request.selectedReactionKeys || []), request.reactionKey],
+        selectedTargetRefsByReactionKey: {
+          ...(request.selectedTargetRefsByReactionKey || {}),
+          [request.reactionKey]: ref,
         },
-      }) : current);
+      });
     }
   };
 
   const activateManualTargetRequest = () => {
+    const request = manualTargetRequest;
+    if (!request) return;
+    if (request.requiresTarget === false) {
+      if (request.kind === "bot_reaction") {
+        continueBotReactionSequence({
+          ...request,
+          selectedReactionKeys: [...(request.selectedReactionKeys || []), request.reactionKey],
+        });
+        return;
+      }
+      if (request.kind === "online_reaction") {
+        continueOnlineReactionSequence({
+          ...request,
+          selectedReactionKeys: [...(request.selectedReactionKeys || []), request.reactionKey],
+        });
+      }
+      return;
+    }
     setManualTargetRequest(current => current ? { ...current, activationAccepted: true } : current);
   };
 
@@ -947,13 +1051,16 @@ export default function DuelPage() {
     const request = manualTargetRequest;
     setManualTargetRequest(null);
     if (request?.kind === "bot_reaction") {
-      setDuel(current => current ? runBotTurn({ ...current, pending_reaction: null }, { skipPreparation: true }) : current);
+      continueBotReactionSequence({
+        ...request,
+        declinedReactionKeys: [...(request.declinedReactionKeys || []), request.reactionKey],
+      });
       return;
     }
     if (request?.kind === "online_reaction") {
-      sendOnlineAction({
-        kind: "resolve_reaction",
-        activate_reaction: false,
+      continueOnlineReactionSequence({
+        ...request,
+        declinedReactionKeys: [...(request.declinedReactionKeys || []), request.reactionKey],
       });
     }
   };

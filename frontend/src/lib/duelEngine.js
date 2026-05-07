@@ -513,7 +513,13 @@ const manualBenchTargets = new Set([
 ]);
 
 const selectedTargetRefFromContext = context => {
-  const ref = context.selectedTargetRef || context.selected_target_ref || null;
+  const reactionKey = context.currentDamageReactionKey || context.current_damage_reaction_key || "";
+  const ref = (
+    (reactionKey && (context.selectedTargetRefsByReactionKey?.[reactionKey] || context.selected_target_refs_by_reaction_key?.[reactionKey])) ||
+    context.selectedTargetRef ||
+    context.selected_target_ref ||
+    null
+  );
   if (!ref) return null;
   const index = parseInt(ref.index, 10);
   return {
@@ -1168,42 +1174,57 @@ const applyDamageReaction = (state, options, details, chooseDamageReaction) => {
     return { state, damageTargetRef: details.damageTargetRef };
   }
 
-  const choice = chooseDamageReaction({
-    ...details,
-    options,
-  });
-  const choiceIndex = Number.isInteger(choice) ? choice : parseInt(choice, 10);
-  if (!Number.isInteger(choiceIndex) || choiceIndex < 0 || choiceIndex >= options.length) {
-    return { state, damageTargetRef: details.damageTargetRef };
-  }
+  let next = state;
+  let damageTargetRef = details.damageTargetRef;
+  let safety = 0;
+  while (safety < MAX_CHAIN_DEPTH) {
+    safety += 1;
+    const remainingOptions = options.filter(option => {
+      const key = option.reactionKey || damageReactionKey(option.sourceRef, option.abilityIndex, option.ruleIndex);
+      return !details.context?.usedDamageReactionKeys?.has(key);
+    });
+    if (remainingOptions.length === 0) break;
 
-  const selected = options[choiceIndex];
-  if (details.context) {
-    if (!details.context.usedDamageReactionKeys) {
-      details.context.usedDamageReactionKeys = new Set();
+    const choice = chooseDamageReaction({
+      ...details,
+      state: next,
+      damageTargetRef,
+      options: remainingOptions,
+    });
+    const choiceIndex = Number.isInteger(choice) ? choice : parseInt(choice, 10);
+    if (!Number.isInteger(choiceIndex) || choiceIndex < 0 || choiceIndex >= remainingOptions.length) {
+      break;
     }
-    details.context.usedDamageReactionKeys.add(selected.reactionKey || damageReactionKey(selected.sourceRef, selected.abilityIndex, selected.ruleIndex));
-  }
-  const interceptsDamage = normalizeEffects(selected.rule.effects)
-    .some(effect => effect.type === EFFECT_TYPES.TAKE_DAMAGE_INSTEAD);
-  const resolved = resolveEffects(state, selected.sourceRef.side, selected.sourceCard, selected.rule.effects, {
-    ...details.context,
-    trigger: selected.rule.trigger,
-    sourceRef: selected.sourceRef,
-    sourceCard: selected.sourceCard,
-    damageSourceRef: details.damageSourceRef,
-    damageTargetRef: details.damageTargetRef,
-    targetRef: details.damageTargetRef,
-    damageAmount: details.damageAmount,
-    suppressDamageReactions: true,
-    suppressRuleTriggers: true,
-    skipKnockoutCheck: true,
-  });
 
-  return {
-    state: withLog(resolved, `${selected.sourceCard.name} ativou ${selected.ability.name}.`),
-    damageTargetRef: interceptsDamage ? selected.sourceRef : details.damageTargetRef,
-  };
+    const selected = remainingOptions[choiceIndex];
+    const selectedKey = selected.reactionKey || damageReactionKey(selected.sourceRef, selected.abilityIndex, selected.ruleIndex);
+    if (details.context) {
+      if (!details.context.usedDamageReactionKeys) {
+        details.context.usedDamageReactionKeys = new Set();
+      }
+      details.context.usedDamageReactionKeys.add(selectedKey);
+    }
+    const interceptsDamage = normalizeEffects(selected.rule.effects)
+      .some(effect => effect.type === EFFECT_TYPES.TAKE_DAMAGE_INSTEAD);
+    next = resolveEffects(next, selected.sourceRef.side, selected.sourceCard, selected.rule.effects, {
+      ...details.context,
+      trigger: selected.rule.trigger,
+      sourceRef: selected.sourceRef,
+      sourceCard: selected.sourceCard,
+      damageSourceRef: details.damageSourceRef,
+      damageTargetRef,
+      targetRef: damageTargetRef,
+      damageAmount: details.damageAmount,
+      currentDamageReactionKey: selectedKey,
+      suppressDamageReactions: true,
+      suppressRuleTriggers: true,
+      skipKnockoutCheck: true,
+    });
+    next = withLog(next, `${selected.sourceCard.name} ativou ${selected.ability.name}.`);
+    damageTargetRef = interceptsDamage ? selected.sourceRef : damageTargetRef;
+  }
+
+  return { state: next, damageTargetRef };
 };
 
 function resolveEquipmentTrigger(state, side, equippedCardRef, trigger, context = {}) {
@@ -2005,7 +2026,9 @@ export function resolveEffects(state, side, sourceCard, effects, context = {}) {
       } else if (DEFENSE_PREP_EFFECTS.has(effect.type)) {
         next = updateCardRef(next, ref, card => ({
           ...card,
-          pending_damage_reduction: effect.type === EFFECT_TYPES.PREVENT_DAMAGE ? 9999 : Math.max(card.pending_damage_reduction || 0, amount),
+          pending_damage_reduction: effect.type === EFFECT_TYPES.PREVENT_DAMAGE
+            ? 9999
+            : (card.pending_damage_reduction || 0) + amount,
           next_damage_multiplier: effect.type === EFFECT_TYPES.HALVE_DAMAGE_TAKEN ? 0.5 : card.next_damage_multiplier,
         }));
         next = withLog(next, `${target.name} se preparou contra o proximo dano.`);

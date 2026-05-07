@@ -192,7 +192,7 @@ const EFFECT_FIELD_CONFIG = {
   [EFFECT_TYPES.FORCE_OPPONENT_SWAP_CARD]: ["amount"],
   [EFFECT_TYPES.RETURN_CARD_TO_DECK]: ["target"],
   [EFFECT_TYPES.RESURRECT_TO_DECK]: ["target", "card_name", "card_type", "nature", "tag"],
-  [EFFECT_TYPES.RESURRECT_FROM_DISCARD]: ["target", "card_name", "card_type"],
+  [EFFECT_TYPES.RESURRECT_FROM_DISCARD]: ["target", "card_name", "card_type", "nature", "tag"],
   [EFFECT_TYPES.RETURN_KNOCKED_OUT_TO_HAND]: ["target"],
   [EFFECT_TYPES.PREVENT_POINT_GAIN]: ["target", "duration"],
   [EFFECT_TYPES.CANCEL_KNOCKOUT_POINT]: ["target", "duration"],

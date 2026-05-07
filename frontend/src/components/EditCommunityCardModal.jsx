@@ -555,7 +555,7 @@ const TargetFiltersEditor = ({ filters = [], onChange, inputCls }) => {
   );
 };
 
-const EffectControls = ({ effect, onChange, onAdd }) => {
+const LegacyEffectControls = ({ effect, onChange, onAdd }) => {
   const inputCls = "w-full min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none";
   const manualTargetSelected = isManualTarget(effect.target) || Boolean(effect.allow_manual_target);
   const handleTargetChange = value => {
@@ -649,7 +649,7 @@ const EffectControls = ({ effect, onChange, onAdd }) => {
   );
 };
 
-const DynamicEffectControls = ({ effect, onChange, onAdd }) => {
+const EffectControls = ({ effect, onChange, onAdd }) => {
   const inputCls = "w-full min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none";
   const fields = effectFieldsFor(effect.type);
   const show = field => fields.includes(field);
@@ -1919,7 +1919,7 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
                     <span className="text-[10px] text-slate-500">{normalizeEffects(ab.effects).length} adicionados</span>
                   </div>
                   <EffectDropdown title="Adicionar efeito direto" subtitle="Abra para escolher e configurar o efeito da habilidade.">
-                    <DynamicEffectControls
+                    <EffectControls
                       effect={ab.effect_to_add || BLANK_EFFECT}
                       onChange={(field, value) => updateAbilityEffectDraft(i, field, value)}
                       onAdd={() => addAbilityEffect(i)}
@@ -1990,7 +1990,7 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
                   </div>
 
                   <EffectDropdown title="Adicionar efeito da regra" subtitle="Efeito aplicado quando gatilho e condicoes forem cumpridos.">
-                    <DynamicEffectControls effect={ab.rule_to_add?.effect_to_add || BLANK_EFFECT} onChange={(field, value) => updateAbilityRuleEffectDraft(i, field, value)} onAdd={() => addAbilityRuleEffect(i)} />
+                    <EffectControls effect={ab.rule_to_add?.effect_to_add || BLANK_EFFECT} onChange={(field, value) => updateAbilityRuleEffectDraft(i, field, value)} onAdd={() => addAbilityRuleEffect(i)} />
                   </EffectDropdown>
                   <EffectsList effects={ab.rule_to_add?.effects} onRemove={effectIndex => removeAbilityRuleEffect(i, effectIndex)} />
 
@@ -2117,7 +2117,7 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
                     </div>
 
                     <EffectDropdown title="Adicionar efeito passivo" subtitle="Ex: reduzir recuo, reduzir dano recebido, prevenir dano ou imunidade.">
-                      <DynamicEffectControls effect={passive.rule_to_add?.effect_to_add || BLANK_EFFECT} onChange={(field, value) => updatePassiveRuleEffectDraft(i, field, value)} onAdd={() => addPassiveRuleEffect(i)} />
+                      <EffectControls effect={passive.rule_to_add?.effect_to_add || BLANK_EFFECT} onChange={(field, value) => updatePassiveRuleEffectDraft(i, field, value)} onAdd={() => addPassiveRuleEffect(i)} />
                     </EffectDropdown>
                     <EffectsList effects={passive.rule_to_add?.effects} onRemove={effectIndex => removePassiveRuleEffect(i, effectIndex)} />
 
@@ -2159,7 +2159,7 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
               <span className="text-[10px] text-slate-500">{normalizeEffects(form.effects).length} adicionados</span>
             </div>
             <EffectDropdown title="Adicionar efeito da carta" subtitle="Abra para configurar o efeito usado ao jogar esta carta.">
-              <DynamicEffectControls
+              <EffectControls
                 effect={form.effect_to_add || BLANK_EFFECT}
                 onChange={(field, value) => updateEffectDraft("effect_to_add", field, value)}
                 onAdd={() => addCardEffect("effects", "effect_to_add", BLANK_EFFECT)}
@@ -2183,7 +2183,7 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
                 <span className="text-[10px] text-slate-500">{normalizeEffects(form.passive_effects).length} adicionados</span>
               </div>
               <EffectDropdown title="Adicionar efeito passivo do equipamento" subtitle="Abra para configurar o efeito passivo anexado ao personagem.">
-                <DynamicEffectControls
+                <EffectControls
                   effect={form.passive_effect_to_add || BLANK_EFFECT}
                   onChange={(field, value) => updateEffectDraft("passive_effect_to_add", field, value)}
                   onAdd={() => addCardEffect("passive_effects", "passive_effect_to_add", {
