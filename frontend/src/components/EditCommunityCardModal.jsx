@@ -28,8 +28,10 @@ import {
   EFFECT_TYPES,
   TARGETS,
   TARGET_LABELS,
+  TARGET_FILTER_OPTIONS,
   TARGET_OPTIONS,
   abilityConditionValueLabel,
+  abilityConditionLabel,
   advancedEffectExtraFields,
   effectSummary,
   isManualTarget,
@@ -38,6 +40,7 @@ import {
   normalizeAbilityRules,
   normalizeEquipmentPassiveEffects,
   normalizeEffects,
+  normalizeTargetFilters,
   ruleSummary,
 } from "../lib/cardEffects";
 import { Loader2, X, Plus, Zap, Upload } from "lucide-react";
@@ -135,6 +138,8 @@ const NUMBER_CONDITION_TYPES = new Set([
 const NO_VALUE_CONDITION_TYPES = new Set([
   ABILITY_CONDITION_TYPES.TARGET_IS_DAMAGED,
   ABILITY_CONDITION_TYPES.HAS_EQUIPMENT,
+  ABILITY_CONDITION_TYPES.TARGET_HAS_EQUIPMENT,
+  ABILITY_CONDITION_TYPES.TARGET_HAS_ENERGY,
   ABILITY_CONDITION_TYPES.WOULD_BE_KNOCKED_OUT,
   ABILITY_CONDITION_TYPES.ONCE_PER_TURN,
 ]);
@@ -148,7 +153,8 @@ const defaultRuleConditionValue = type => {
   if (NATURE_CONDITION_TYPES.has(type) || CARD_TYPE_CONDITION_TYPES.has(type)) return [];
   if (type === ABILITY_CONDITION_TYPES.SELF_HAS_ENERGY_TYPE) return ENERGY_TYPES[0] || "";
   if (NUMBER_CONDITION_TYPES.has(type)) return 1;
-  if (type === ABILITY_CONDITION_TYPES.BENCH_HAS_CARD_NAME) return "";
+  if ([ABILITY_CONDITION_TYPES.BENCH_HAS_CARD_NAME, ABILITY_CONDITION_TYPES.TARGET_HAS_TAG, ABILITY_CONDITION_TYPES.TARGET_IS_CARD_NAME].includes(type)) return "";
+  if (type === ABILITY_CONDITION_TYPES.TARGET_HAS_CONDITION) return ACTIVE_CONDITION_TYPES.POISON;
   if (META_CONDITION_TYPES.has(type)) return { key: CARD_META_KEYS[0], values: [] };
   return "";
 };
@@ -219,6 +225,25 @@ const RuleConditionValueControl = ({ condition, onChange, className }) => {
 
   if (draft.type === ABILITY_CONDITION_TYPES.BENCH_HAS_CARD_NAME) {
     return <input value={draft.value || ""} onChange={e => onChange(e.target.value)} placeholder="Nome da carta" className={className} />;
+  }
+
+  if (draft.type === ABILITY_CONDITION_TYPES.TARGET_IS_CARD_NAME) {
+    return <input value={draft.value || ""} onChange={e => onChange(e.target.value)} placeholder="Nome da carta" className={className} />;
+  }
+
+  if (draft.type === ABILITY_CONDITION_TYPES.TARGET_HAS_TAG) {
+    return <input value={Array.isArray(draft.value) ? draft.value.join(", ") : draft.value || ""} onChange={e => onChange(e.target.value.split(",").map(item => item.trim().toUpperCase()).filter(Boolean))} placeholder="Tags separadas por virgula" className={className} />;
+  }
+
+  if (draft.type === ABILITY_CONDITION_TYPES.TARGET_HAS_CONDITION) {
+    return (
+      <select value={draft.value || ACTIVE_CONDITION_TYPES.POISON} onChange={e => onChange(e.target.value)} className={className}>
+        <option value="ANY">Qualquer status</option>
+        {Object.values(ACTIVE_CONDITION_TYPES).map(type => (
+          <option key={type} value={type}>{ACTIVE_CONDITION_LABELS[type]}</option>
+        ))}
+      </select>
+    );
   }
 
   if (META_CONDITION_TYPES.has(draft.type)) {
@@ -403,6 +428,7 @@ const sanitizeEffectDraft = effect => {
     duration: effect?.duration || DURATIONS.INSTANT,
     amount: parseInt(effect?.amount, 10) || 0,
     allow_manual_target: isManualTarget(target) || Boolean(effect?.allow_manual_target),
+    target_filters: normalizeTargetFilters(effect?.target_filters),
     priority: Math.max(0, parseInt(effect?.priority, 10) || 10),
     value_formula: fields.includes("value_formula") ? (effect?.value_formula || effect?.valueFormula || "") : "",
     dice_type: fields.includes("dice_type") ? (effect?.dice_type || effect?.diceType || "") : "",
@@ -454,9 +480,84 @@ const EffectDropdown = ({ title = "Opcoes de efeito", subtitle, children }) => {
   );
 };
 
+const makeBlankTargetFilter = () => ({
+  type: TARGET_FILTER_OPTIONS[0]?.value || ABILITY_CONDITION_TYPES.TARGET_NATURE_IN,
+  value: defaultRuleConditionValue(TARGET_FILTER_OPTIONS[0]?.value || ABILITY_CONDITION_TYPES.TARGET_NATURE_IN),
+  negate: false,
+});
+
+const TargetFiltersEditor = ({ filters = [], onChange, inputCls }) => {
+  const normalized = normalizeTargetFilters(filters);
+  const [draft, setDraft] = useState(makeBlankTargetFilter);
+  const draftType = draft.type || TARGET_FILTER_OPTIONS[0]?.value || ABILITY_CONDITION_TYPES.TARGET_NATURE_IN;
+  const draftValue = draft.value === undefined ? defaultRuleConditionValue(draftType) : draft.value;
+
+  const updateDraftType = type => {
+    setDraft({ type, value: defaultRuleConditionValue(type), negate: false });
+  };
+
+  const addFilter = () => {
+    onChange([...normalized, { type: draftType, value: draftValue, negate: Boolean(draft.negate) }]);
+    setDraft(makeBlankTargetFilter());
+  };
+
+  return (
+    <div className="basis-full rounded-lg border border-cyan-400/20 bg-cyan-500/5 p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-cyan-200/80">Filtros de alvo</div>
+          <div className="text-[10px] text-slate-500">Opcional. Limita quais cartas podem ser escolhidas no duelo.</div>
+        </div>
+        <span className="text-[10px] text-slate-500">{normalized.length} filtro(s)</span>
+      </div>
+
+      {normalized.length > 0 && (
+        <div className="mb-3 flex flex-wrap gap-2">
+          {normalized.map((filter, index) => (
+            <button
+              key={`${filter.type}-${index}`}
+              type="button"
+              onClick={() => onChange(normalized.filter((_, idx) => idx !== index))}
+              className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-300 hover:border-rose-500/60 hover:text-rose-200"
+            >
+              {abilityConditionLabel(filter.type)}{abilityConditionValueLabel(filter) ? `: ${abilityConditionValueLabel(filter)}` : ""} <X size={11} className="inline" />
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-2 lg:grid-cols-[minmax(12rem,18rem)_minmax(18rem,1fr)]">
+        <select value={draftType} onChange={e => updateDraftType(e.target.value)} className={inputCls}>
+          {TARGET_FILTER_OPTIONS.map(option => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+        <RuleConditionValueControl
+          condition={{ ...draft, type: draftType, value: draftValue }}
+          onChange={value => setDraft(current => ({ ...current, type: draftType, value }))}
+          className={inputCls}
+        />
+        <div className="flex flex-wrap items-center justify-end gap-2 lg:col-span-2">
+          <label className="flex h-10 items-center gap-2 rounded-lg border border-slate-800 bg-slate-950 px-3 text-xs text-slate-300">
+            <input type="checkbox" checked={Boolean(draft.negate)} onChange={e => setDraft(current => ({ ...current, negate: e.target.checked }))} />
+            Negar
+          </label>
+          <button
+            type="button"
+            onClick={addFilter}
+            className="inline-flex h-10 min-w-12 items-center justify-center rounded-lg border border-cyan-500/40 bg-cyan-500/20 px-4 text-xs text-cyan-100 hover:bg-cyan-500/30"
+          >
+            <Plus size={13} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const EffectControls = ({ effect, onChange, onAdd }) => {
   const inputCls = "w-full min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none";
-  const manualTargetSelected = isManualTarget(effect.target);
+  const manualTargetSelected = isManualTarget(effect.target) || Boolean(effect.allow_manual_target);
   const handleTargetChange = value => {
     onChange("target", value);
   };
@@ -525,6 +626,15 @@ const EffectControls = ({ effect, onChange, onAdd }) => {
             Este efeito exigirá escolha manual do alvo durante o duelo.
           </div>
         )}
+        {manualTargetSelected && (
+          <div className="sm:col-span-2">
+            <TargetFiltersEditor
+              filters={effect.target_filters}
+              onChange={filters => onChange("target_filters", filters)}
+              inputCls={inputCls}
+            />
+          </div>
+        )}
         <div className="flex justify-end sm:col-span-2">
           <button
             type="button"
@@ -543,7 +653,7 @@ const DynamicEffectControls = ({ effect, onChange, onAdd }) => {
   const inputCls = "w-full min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none";
   const fields = effectFieldsFor(effect.type);
   const show = field => fields.includes(field);
-  const manualTargetSelected = isManualTarget(effect.target);
+  const manualTargetSelected = isManualTarget(effect.target) || Boolean(effect.allow_manual_target);
   const handleTargetChange = value => {
     onChange("target", value);
   };
@@ -759,6 +869,13 @@ const DynamicEffectControls = ({ effect, onChange, onAdd }) => {
           <div className="basis-full rounded-lg border border-cyan-400/25 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100">
             Este efeito exigirá escolha manual do alvo durante o duelo.
           </div>
+        )}
+        {manualTargetSelected && (
+          <TargetFiltersEditor
+            filters={effect.target_filters}
+            onChange={filters => onChange("target_filters", filters)}
+            inputCls={inputCls}
+          />
         )}
         <div className="mt-2 flex basis-full justify-end">
           <button
