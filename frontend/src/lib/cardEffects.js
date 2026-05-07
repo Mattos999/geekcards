@@ -1195,9 +1195,9 @@ const normalizeAbilityCondition = condition => {
 export const normalizeTargetFilters = filters => (
   Array.isArray(filters)
     ? filters
-        .filter(filter => filter?.type && TARGET_FILTER_TYPES.has(filter.type))
         .map(normalizeAbilityCondition)
         .filter(Boolean)
+        .filter(filter => filter?.type && TARGET_FILTER_TYPES.has(filter.type))
         .map(filter => ({
           type: filter.type,
           value: normalizeConditionValue(filter.value),
