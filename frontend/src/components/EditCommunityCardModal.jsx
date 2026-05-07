@@ -299,6 +299,14 @@ const EFFECT_FIELD_CONFIG = {
   [EFFECT_TYPES.ENERGY_REQUIRED_TYPE]: ["target", "energy_type", "duration"],
   [EFFECT_TYPES.REMOVE_ENERGY]: ["target", "amount", "energy_type"],
   [EFFECT_TYPES.REMOVE_RANDOM_ENERGY]: ["target", "amount", "random"],
+  [EFFECT_TYPES.SWITCH_ACTIVE]: ["target"],
+  [EFFECT_TYPES.SWITCH_OWN_ACTIVE]: ["target"],
+  [EFFECT_TYPES.SWITCH_OPPONENT_ACTIVE]: [],
+  [EFFECT_TYPES.FORCE_SWITCH_OPPONENT_ACTIVE]: [],
+  [EFFECT_TYPES.OPPONENT_CHOOSES_NEW_ACTIVE]: [],
+  [EFFECT_TYPES.PROMOTE_FROM_BENCH]: ["target"],
+  [EFFECT_TYPES.SUMMON_FROM_BENCH]: ["target"],
+  [EFFECT_TYPES.RESCUE_ACTIVE]: ["target"],
   [EFFECT_TYPES.IF_BENCH_HAS_CARD]: ["card_name"],
   [EFFECT_TYPES.IF_TARGET_NATURE]: ["target", "nature"],
   [EFFECT_TYPES.IF_TARGET_TAG]: ["target", "tag"],
@@ -451,7 +459,6 @@ const EffectControls = ({ effect, onChange, onAdd }) => {
   const manualTargetSelected = isManualTarget(effect.target);
   const handleTargetChange = value => {
     onChange("target", value);
-    if (isManualTarget(value)) onChange("allow_manual_target", true);
   };
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
@@ -539,7 +546,6 @@ const DynamicEffectControls = ({ effect, onChange, onAdd }) => {
   const manualTargetSelected = isManualTarget(effect.target);
   const handleTargetChange = value => {
     onChange("target", value);
-    if (isManualTarget(value)) onChange("allow_manual_target", true);
   };
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">

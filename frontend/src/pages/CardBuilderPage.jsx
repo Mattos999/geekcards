@@ -629,7 +629,6 @@ const EffectControls = ({ effect, onChange, onAdd }) => {
   const manualTargetSelected = isManualTarget(effect.target) || Boolean(effect.allow_manual_target);
   const handleTargetChange = value => {
     onChange("target", value);
-    if (isManualTarget(value)) onChange("allow_manual_target", true);
   };
 
   const fieldLabels = {
