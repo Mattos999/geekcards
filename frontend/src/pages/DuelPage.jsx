@@ -5,7 +5,7 @@ import { NATURE_COLORS } from "../lib/natures";
 import { EnergyCostSymbols } from "../components/EnergyCostSymbols";
 import { ENERGY_SYMBOLS } from "../lib/energyCosts";
 import { CommunityCardDetailModal } from "../components/CommunityCardDetailModal";
-import { EFFECT_TYPES, normalizeEffects } from "../lib/cardEffects";
+import { EFFECT_TYPES, TARGETS, isManualTarget, normalizeAbilityRules, normalizeEffects, targetFiltersMatchCard } from "../lib/cardEffects";
 import {
   DUEL_RULES,
   TURN_MOMENTS,
@@ -21,6 +21,7 @@ import {
   finishSetup,
   playActionCard,
   playToBench,
+  previewAttackDamageReactionOptions,
   promoteFromBench,
   retreat,
   runBotTurn,
@@ -138,7 +139,7 @@ const BenchZone = ({ cards = [], tone = "player", onCardClick, onDropSlot, child
               onDragOver={onDropSlot ? event => event.preventDefault() : undefined}
               onDrop={onDropSlot ? event => onDropSlot(event, index) : undefined}
             >
-              <CardThumb card={card} compact onClick={card ? () => onCardClick?.(card) : undefined} />
+              <CardThumb card={card} compact onClick={card ? () => onCardClick?.(card, index) : undefined} />
               <AttachedEnergySymbols energies={card?.attached_energy} compact vertical />
             </div>
             {card && childrenForCard?.(card, index)}
@@ -301,6 +302,75 @@ const CemeteryModal = ({ title, cards = [], onClose, onCardClick }) => (
   </div>
 );
 
+const ManualTargetModal = ({ request, state, onChoose, onClose, onActivate, onCardClick }) => {
+  const choices = request?.choices || [];
+  const title = request?.title || "Escolha uma carta do banco";
+  const waitingForActivation = request?.confirmActivation && !request?.activationAccepted;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+      <div className="w-full max-w-3xl rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl shadow-black/60">
+        <div className="flex items-center justify-between border-b border-slate-800 p-4">
+          <div>
+            <h3 className="text-sm font-black text-slate-100">{title}</h3>
+            <p className="text-xs text-slate-500">
+              {waitingForActivation ? "Deseja ativar esta habilidade?" : `${choices.length} alvo(s) valido(s)`}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-slate-700 bg-slate-900 p-2 text-slate-300 hover:text-white"
+            aria-label="Cancelar escolha"
+          >
+            <X size={16} />
+          </button>
+        </div>
+        {waitingForActivation ? (
+          <div className="flex flex-wrap justify-end gap-2 p-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-300 hover:text-white"
+            >
+              Nao ativar
+            </button>
+            <button
+              type="button"
+              onClick={onActivate}
+              className="rounded-lg border border-cyan-400/40 bg-cyan-500/20 px-4 py-2 text-sm font-bold text-cyan-100 hover:bg-cyan-500/30"
+            >
+              Ativar
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 md:grid-cols-4">
+            {choices.map(ref => {
+            const card = state?.players?.[ref.side]?.bench?.[ref.index];
+            if (!card) return null;
+            return (
+              <div key={`${ref.side}-${ref.index}`} className="rounded-xl border border-slate-800 bg-slate-950/60 p-2 text-center">
+                <CardThumb card={card} compact onClick={() => onCardClick?.(card)} />
+                <div className="mt-1 text-[10px] text-slate-500">
+                  {ref.side === "player" ? "Seu banco" : "Banco oponente"} {ref.index + 1}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onChoose(ref)}
+                  className="mt-2 w-full rounded bg-cyan-500/20 px-2 py-1 text-[10px] font-bold text-cyan-100 hover:bg-cyan-500/30"
+                >
+                  Escolher
+                </button>
+              </div>
+            );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const SetupPanel = ({ title, player, side, onAction, onCardClick, disabled = false }) => (
   <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-4">
     <div className="mb-3 flex items-center justify-between">
@@ -415,6 +485,43 @@ const abilityDamage = ability => {
   return damageEffect?.amount ?? ability.damage ?? 0;
 };
 
+const manualBenchSidesForTarget = target => {
+  if ([TARGETS.SELF_BENCH_CHOOSE, TARGETS.SELF_BENCH, TARGETS.ALL_SELF_BENCH, TARGETS.SELF_BENCH_RANDOM].includes(target)) {
+    return ["player"];
+  }
+  if ([TARGETS.OPPONENT_BENCH_CHOOSE, TARGETS.OPPONENT_BENCH, TARGETS.ALL_OPPONENT_BENCH, TARGETS.OPPONENT_BENCH_RANDOM].includes(target)) {
+    return ["opponent"];
+  }
+  if (target === TARGETS.ANY_BENCH_CHOOSE) {
+    return ["player", "opponent"];
+  }
+  return [];
+};
+
+const effectNeedsManualTarget = effect => (
+  isManualTarget(effect.target) ||
+  (Boolean(effect.allow_manual_target) && manualBenchSidesForTarget(effect.target).length > 0)
+);
+
+const manualTargetChoicesForEffect = (state, effect) => (
+  manualBenchSidesForTarget(effect.target).flatMap(side => (
+    (state?.players?.[side]?.bench || [])
+      .map((card, index) => card && targetFiltersMatchCard(card, effect.target_filters) ? { side, zone: "bench", index } : null)
+      .filter(Boolean)
+  ))
+);
+
+const manualEffectsForAbility = ability => [
+  ...normalizeEffects(ability?.effects),
+  ...normalizeAbilityRules(ability?.rules)
+    .filter(rule => rule.trigger === "ON_ATTACK")
+    .flatMap(rule => rule.effects),
+].filter(effectNeedsManualTarget);
+
+const manualEffectsForActionCard = card => normalizeEffects(card?.effects).filter(effectNeedsManualTarget);
+
+const manualEffectForReactionOption = option => normalizeEffects(option?.rule?.effects).find(effectNeedsManualTarget) || null;
+
 const dragData = event => {
   try {
     return JSON.parse(event.dataTransfer.getData("application/json") || "{}");
@@ -447,6 +554,7 @@ export default function DuelPage() {
   const [retreatChoosing, setRetreatChoosing] = useState(false);
   const [detailCard, setDetailCard] = useState(null);
   const [cemeterySide, setCemeterySide] = useState(null);
+  const [manualTargetRequest, setManualTargetRequest] = useState(null);
   const onlineDuelId = onlineDuel?.id;
 
   useEffect(() => {
@@ -653,19 +761,86 @@ export default function DuelPage() {
   const isPlayerTurn = duel?.turn === "player" && !duel?.winner;
   const canPlayerDraw = Boolean(isPlayerTurn && !player?.drew_this_turn && playerDeckCount > 0);
   const canPlayerAct = Boolean(isPlayerTurn && (player?.drew_this_turn || playerDeckCount === 0));
-  const activeRetreatCost = Math.max(0, parseInt(player?.active?.recuo, 10) || 0);
+  const activeRetreatCost = player?.active?.ignore_retreat_cost
+    ? 0
+    : Math.max(0, (parseInt(player?.active?.recuo, 10) || 0) - (parseInt(player?.active?.retreat_cost_reduction, 10) || 0));
+  const activeRetreatBlocked = (player?.active?.status_effects || []).some(status => ["prevent_retreat", "block_retreat"].includes(status));
   const canPlayerRetreat = Boolean(
     canPlayerAct &&
     player?.active &&
+    !activeRetreatBlocked &&
     player?.bench?.length > 0 &&
     (player.active.attached_energy || []).length >= activeRetreatCost
   );
+
+  useEffect(() => {
+    const pending = duel?.pending_reaction;
+    if (!pending) {
+      setManualTargetRequest(current => ["online_reaction", "bot_reaction"].includes(current?.kind) ? null : current);
+      return;
+    }
+
+    if (!isOnlineDuel && pending.kind === "bot_reaction") {
+      setManualTargetRequest(current => {
+        if (current?.kind === "bot_reaction" && current.id === pending.id) return current;
+        return pending;
+      });
+      return;
+    }
+
+    if (!isOnlineDuel || !pending?.can_respond) {
+      setManualTargetRequest(current => current?.kind === "online_reaction" ? null : current);
+      return;
+    }
+
+    setManualTargetRequest(current => {
+      if (current?.kind === "online_reaction" && current.id === pending.id) return current;
+      return {
+        id: pending.id,
+        kind: "online_reaction",
+        effect: pending.effect,
+        choices: pending.choices || [],
+        confirmActivation: true,
+        activationAccepted: false,
+        title: `${pending.source_name || "Carta"} pode ativar ${pending.ability_name || "habilidade"}.`,
+      };
+    });
+  }, [duel?.pending_reaction, isOnlineDuel]);
+
+  const buildBotReactionRequest = (preparedState, abilityIndex) => {
+    const options = previewAttackDamageReactionOptions(preparedState, "opponent", abilityIndex);
+    const option = options.find(candidate => manualEffectForReactionOption(candidate));
+    const effect = manualEffectForReactionOption(option);
+    if (!option || !effect) return null;
+
+    const choices = manualTargetChoicesForEffect(preparedState, effect);
+    if (choices.length === 0) return null;
+
+    return {
+      id: option.reactionKey,
+      kind: "bot_reaction",
+      effect,
+      choices,
+      reactionKey: option.reactionKey,
+      confirmActivation: true,
+      activationAccepted: false,
+      title: `${option.sourceCard?.name || "Carta"} pode ativar ${option.ability?.name || "habilidade"}. Escolha o alvo.`,
+    };
+  };
 
   const applyAndBot = action => {
     setDuel(current => {
       if (!current) return current;
       const next = action(current);
-      return next.turn === "opponent" && !next.winner ? runBotTurn(next) : next;
+      if (next.turn !== "opponent" || next.winner) return next;
+      return runBotTurn(next, {
+        beforeBotAttack: (preparedState, abilityIndex) => {
+          const pendingReactionRequest = buildBotReactionRequest(preparedState, abilityIndex);
+          return pendingReactionRequest
+            ? { pause: true, state: { ...preparedState, pending_reaction: pendingReactionRequest } }
+            : null;
+        },
+      });
     });
   };
 
@@ -675,6 +850,112 @@ export default function DuelPage() {
       return;
     }
     applyAndBot(localAction);
+  };
+
+  const openManualTargetRequest = ({ kind, abilityIndex = null, handIndex = null, effect }) => {
+    const choices = manualTargetChoicesForEffect(duel, effect);
+    if (choices.length === 0) {
+      toast.info("Nenhum alvo valido no banco.");
+      return false;
+    }
+    const title = effect.target === TARGETS.SELF_BENCH_CHOOSE
+      ? "Escolha uma carta do seu banco"
+      : effect.target === TARGETS.OPPONENT_BENCH_CHOOSE
+        ? "Escolha uma carta do banco oponente"
+        : "Escolha uma carta do banco";
+    setManualTargetRequest({ kind, abilityIndex, handIndex, effect, choices, title });
+    return true;
+  };
+
+  const executeAbility = (abilityIndex, selectedTargetRef = null) => {
+    const context = selectedTargetRef ? { selectedTargetRef } : {};
+    applyDuelAction(
+      state => activateAbility(state, "player", abilityIndex, context),
+      {
+        kind: "ability",
+        ability_index: abilityIndex,
+        zone: selectedTargetRef?.zone || "active",
+        target_index: selectedTargetRef?.index || 0,
+        selected_target_ref: selectedTargetRef,
+      }
+    );
+  };
+
+  const requestAbilityActivation = (ability, abilityIndex) => {
+    const manualEffect = manualEffectsForAbility(ability)[0];
+    if (manualEffect && openManualTargetRequest({ kind: "ability", abilityIndex, effect: manualEffect })) return;
+    executeAbility(abilityIndex);
+  };
+
+  const executeActionCard = (handIndex, selectedTargetRef = null) => {
+    const context = selectedTargetRef ? { selectedTargetRef } : {};
+    applyDuelAction(
+      state => playActionCard(state, "player", handIndex, context),
+      {
+        kind: "play_action",
+        hand_index: handIndex,
+        zone: selectedTargetRef?.zone || "active",
+        target_index: selectedTargetRef?.index || 0,
+        selected_target_ref: selectedTargetRef,
+      }
+    );
+  };
+
+  const requestPlayActionCard = (card, handIndex) => {
+    const manualEffect = manualEffectsForActionCard(card)[0];
+    if (manualEffect && openManualTargetRequest({ kind: "play_action", handIndex, effect: manualEffect })) return;
+    executeActionCard(handIndex);
+  };
+
+  const confirmManualTarget = ref => {
+    const request = manualTargetRequest;
+    setManualTargetRequest(null);
+    if (!request) return;
+    if (request.kind === "ability") {
+      executeAbility(request.abilityIndex, ref);
+      return;
+    }
+    if (request.kind === "play_action") {
+      executeActionCard(request.handIndex, ref);
+      return;
+    }
+    if (request.kind === "online_reaction") {
+      sendOnlineAction({
+        kind: "resolve_reaction",
+        activate_reaction: true,
+        selected_target_ref: ref,
+      });
+      return;
+    }
+    if (request.kind === "bot_reaction") {
+      setDuel(current => current ? runBotTurn({ ...current, pending_reaction: null }, {
+        skipPreparation: true,
+        selectedTargetRef: ref,
+        chooseDamageReaction: ({ options }) => {
+          const index = options.findIndex(option => option.reactionKey === request.reactionKey);
+          return index >= 0 ? index : -1;
+        },
+      }) : current);
+    }
+  };
+
+  const activateManualTargetRequest = () => {
+    setManualTargetRequest(current => current ? { ...current, activationAccepted: true } : current);
+  };
+
+  const closeManualTargetRequest = () => {
+    const request = manualTargetRequest;
+    setManualTargetRequest(null);
+    if (request?.kind === "bot_reaction") {
+      setDuel(current => current ? runBotTurn({ ...current, pending_reaction: null }, { skipPreparation: true }) : current);
+      return;
+    }
+    if (request?.kind === "online_reaction") {
+      sendOnlineAction({
+        kind: "resolve_reaction",
+        activate_reaction: false,
+      });
+    }
   };
 
   const applySetup = action => {
@@ -742,11 +1023,17 @@ export default function DuelPage() {
     }
 
     if (zone === "active" && card.card_type !== "Personagem" && card.card_type !== "Energia") {
-      applyDuelAction(
-        state => playActionCard(state, "player", handIndex),
-        { kind: "play_action", hand_index: handIndex, zone, target_index: targetIndex }
-      );
+      requestPlayActionCard(card, handIndex);
     }
+  };
+
+  const chooseRetreatTarget = index => {
+    if (!canPlayerRetreat) return;
+    applyDuelAction(
+      state => retreat(state, "player", index),
+      { kind: "retreat", bench_index: index }
+    );
+    setRetreatChoosing(false);
   };
 
   if (loading) {
@@ -1068,10 +1355,7 @@ export default function DuelPage() {
                         {(player.active.abilities || []).map((ability, index) => (
                           <button
                             key={index}
-                            onClick={() => applyDuelAction(
-                              state => activateAbility(state, "player", index),
-                              { kind: "ability", ability_index: index, zone: "active", target_index: 0 }
-                            )}
+                            onClick={() => requestAbilityActivation(ability, index)}
                             disabled={!canPayAbility(player.active, ability) || !canAttackThisTurn(duel, "player", index)}
                             className="flex w-full items-center justify-between gap-2 rounded-lg border border-indigo-400/25 bg-slate-950/70 px-2 py-1 text-left text-[10px] text-slate-200 disabled:opacity-40"
                           >
@@ -1088,7 +1372,13 @@ export default function DuelPage() {
                   <BenchZone
                     cards={player.bench}
                     tone="player"
-                    onCardClick={setDetailCard}
+                    onCardClick={(card, index) => {
+                      if (retreatChoosing && canPlayerAct) {
+                        chooseRetreatTarget(index);
+                        return;
+                      }
+                      setDetailCard(card);
+                    }}
                     onDropSlot={(event, index) => handleDrop(event, "bench", index)}
                     childrenForCard={(card, index) => (
                       <div className="grid gap-1">
@@ -1106,13 +1396,7 @@ export default function DuelPage() {
                         {canPlayerAct && retreatChoosing && (
                           <button
                             type="button"
-                            onClick={() => {
-                              applyDuelAction(
-                                state => retreat(state, "player", index),
-                                { kind: "retreat", bench_index: index }
-                              );
-                              setRetreatChoosing(false);
-                            }}
+                            onClick={() => chooseRetreatTarget(index)}
                             className="rounded bg-indigo-500/15 px-1 py-0.5 text-[9px] text-indigo-200"
                           >
                             Trocar
@@ -1181,10 +1465,7 @@ export default function DuelPage() {
                                   ))}
                                   {card.card_type !== "Personagem" && card.card_type !== "Energia" && (
                                     <button
-                                      onClick={() => applyDuelAction(
-                                        state => playActionCard(state, "player", index),
-                                        { kind: "play_action", hand_index: index, zone: "active", target_index: 0 }
-                                      )}
+                                      onClick={() => requestPlayActionCard(card, index)}
                                       className="rounded bg-fuchsia-500/20 px-1 py-0.5 text-[8px] text-fuchsia-100"
                                     >
                                       {card.card_type === "Equipamento" ? "Equipar" : "Usar"}
@@ -1235,6 +1516,16 @@ export default function DuelPage() {
           title={cemeterySide === "player" ? "Seu cemiterio" : "Cemiterio do oponente"}
           cards={duel.players[cemeterySide]?.discard || []}
           onClose={() => setCemeterySide(null)}
+          onCardClick={setDetailCard}
+        />
+      )}
+      {manualTargetRequest && duel && (
+        <ManualTargetModal
+          request={manualTargetRequest}
+          state={duel}
+          onChoose={confirmManualTarget}
+          onClose={closeManualTargetRequest}
+          onActivate={activateManualTargetRequest}
           onCardClick={setDetailCard}
         />
       )}

@@ -7,6 +7,7 @@ import {
 
 import { imageUrl } from "../lib/api";
 import { EnergyCostSymbols } from "./EnergyCostSymbols";
+import { effectSummary, normalizeAbilityRules, normalizeEffects, ruleSummary } from "../lib/cardEffects";
 
 import {
   Star,
@@ -346,7 +347,10 @@ else {
 
           <div className="mt-1.5 space-y-1">
 
-            {card.abilities.slice(0, 3).map((ab, i) => (
+            {card.abilities.slice(0, 3).map((ab, i) => {
+              const directEffects = normalizeEffects(ab.effects);
+              const advancedRules = normalizeAbilityRules(ab.rules);
+              return (
 
               <div
                 key={i}
@@ -378,13 +382,24 @@ else {
 
                   </div>
 
-                  
+                  {directEffects.length > 0 && (
+                    <div className="mt-0.5 line-clamp-2 text-[7px] leading-tight text-slate-200/80">
+                      {directEffects.map(effectSummary).join(" | ")}
+                    </div>
+                  )}
+
+                  {advancedRules.length > 0 && (
+                    <div className="mt-0.5 line-clamp-2 text-[7px] leading-tight text-cyan-200/90">
+                      {advancedRules.map(ruleSummary).join(" | ")}
+                    </div>
+                  )}
 
                 </div>
 
               </div>
 
-            ))}
+              );
+            })}
 
           </div>
 

@@ -7,9 +7,11 @@ import { EnergyCostSymbols } from "../components/EnergyCostSymbols";
 import { normalizeAbilityEnergyCosts, sanitizeEnergyCosts, totalEnergyCost } from "../lib/energyCosts";
 import {
   ABILITY_CONDITION_LABELS,
+  ABILITY_CONDITION_OPTIONS,
   ABILITY_CONDITION_TYPES,
   ABILITY_POSITION_OPTIONS,
   ABILITY_TRIGGER_LABELS,
+  ABILITY_TRIGGER_OPTIONS,
   ABILITY_TRIGGERS,
   ACTIVE_CONDITION_LABELS,
   ACTIVE_CONDITION_TYPES,
@@ -24,17 +26,23 @@ import {
   EFFECT_CONDITION_LABELS,
   EFFECT_CONDITIONS,
   DURATION_LABELS,
+  DURATION_OPTIONS,
   DURATIONS,
   TARGET_LABELS,
+  TARGET_FILTER_OPTIONS,
+  TARGET_OPTIONS,
   TARGETS,
   abilityConditionValueLabel,
+  abilityConditionLabel,
   advancedEffectExtraFields,
   effectSummary,
+  isManualTarget,
   normalizeCardMeta,
   normalizeAbilityConditions,
   normalizeAbilityRules,
   normalizeEquipmentPassiveEffects,
   normalizeEffects,
+  normalizeTargetFilters,
   ruleSummary,
 } from "../lib/cardEffects";
 import { Upload, Save, Trash2, X, Plus, Zap } from "lucide-react";
@@ -120,6 +128,8 @@ const EFFECT_FIELD_CONFIG = {
   [EFFECT_TYPES.TRANSFORM]: ["target", "card_name", "keep_negative_effects", "priority", "description"],
   [EFFECT_TYPES.COPY_ITEM]: ["target", "priority", "description"],
   [EFFECT_TYPES.DAMAGE]: ["target", "amount"],
+  [EFFECT_TYPES.DAMAGE_FIXED]: ["target", "amount", "priority"],
+  [EFFECT_TYPES.DAMAGE_BY_FORMULA]: ["target", "value_formula", "amount", "priority", "description"],
   [EFFECT_TYPES.DAMAGE_RANDOM_TARGETS]: ["target", "amount", "random_targets_count"],
   [EFFECT_TYPES.DAMAGE_ANY_TARGET]: ["target", "amount", "allow_manual_target"],
   [EFFECT_TYPES.DAMAGE_ACTIVE_AND_BENCH]: ["amount"],
@@ -137,13 +147,20 @@ const EFFECT_FIELD_CONFIG = {
   [EFFECT_TYPES.HEAL_SELF]: ["amount"],
   [EFFECT_TYPES.HEAL_ACTIVE]: ["amount"],
   [EFFECT_TYPES.HEAL_BENCH]: ["target", "amount"],
+  [EFFECT_TYPES.HEAL_BENCH_CARD]: ["target", "amount"],
   [EFFECT_TYPES.HEAL_ANY_SELF_CARD]: ["target", "amount"],
+  [EFFECT_TYPES.HEAL_ANY_ALLY]: ["target", "amount"],
   [EFFECT_TYPES.HEAL_EQUIPPED_CARD]: ["amount"],
   [EFFECT_TYPES.HEAL_BY_DAMAGE_DEALT]: ["target", "amount"],
+  [EFFECT_TYPES.HEAL_ON_ENERGY_ATTACH]: ["target", "amount"],
   [EFFECT_TYPES.HEAL_ALLY_ON_DAMAGE]: ["target", "amount"],
   [EFFECT_TYPES.HEAL_PER_TURN]: ["target", "amount", "duration"],
+  [EFFECT_TYPES.HEAL_BENCH_GROUP]: ["target", "amount", "duration"],
+  [EFFECT_TYPES.GAIN_HP_FROM_KO]: ["target", "amount"],
   [EFFECT_TYPES.ADD_ENERGY]: ["target", "amount"],
+  [EFFECT_TYPES.ADD_ENERGY_TYPED]: ["target", "energy_type", "amount"],
   [EFFECT_TYPES.ADD_TYPED_ENERGY]: ["target", "energy_type", "amount"],
+  [EFFECT_TYPES.ADD_ENERGY_TO_TARGET]: ["target", "energy_type", "amount"],
   [EFFECT_TYPES.ADD_ENERGY_TO_ACTIVE]: ["amount"],
   [EFFECT_TYPES.ADD_ENERGY_TO_BENCH]: ["target", "amount"],
   [EFFECT_TYPES.ADD_ENERGY_BY_COIN]: ["target", "energy_type", "amount"],
@@ -153,9 +170,11 @@ const EFFECT_FIELD_CONFIG = {
   [EFFECT_TYPES.REMOVE_ENERGY]: ["target", "amount", "energy_type"],
   [EFFECT_TYPES.REMOVE_RANDOM_ENERGY]: ["target", "amount", "random"],
   [EFFECT_TYPES.MOVE_ENERGY]: ["target", "amount"],
+  [EFFECT_TYPES.MOVE_ALL_BENCH_ENERGY_TO_ACTIVE]: ["target"],
   [EFFECT_TYPES.MOVE_ALL_ENERGY_FROM_BENCH_TO_ACTIVE]: ["target"],
   [EFFECT_TYPES.DISCARD_OWN_ENERGY]: ["target", "amount"],
   [EFFECT_TYPES.ENERGY_ANY_TYPE]: ["target", "duration"],
+  [EFFECT_TYPES.ALLOW_ANY_ENERGY_TYPE]: ["target", "duration"],
   [EFFECT_TYPES.ENERGY_COST_REDUCTION]: ["target", "amount", "duration"],
   [EFFECT_TYPES.ENERGY_REQUIRED_TYPE]: ["target", "energy_type", "duration"],
   [EFFECT_TYPES.DRAW_CARD]: ["amount"],
@@ -165,19 +184,21 @@ const EFFECT_FIELD_CONFIG = {
   [EFFECT_TYPES.LOOK_TOP_DECK]: ["amount"],
   [EFFECT_TYPES.REVEAL_OPPONENT_HAND]: [],
   [EFFECT_TYPES.REVEAL_ONE_CARD]: ["target"],
+  [EFFECT_TYPES.REVEAL_ONE_OPPONENT_CARD]: ["target"],
   [EFFECT_TYPES.SHUFFLE_OPPONENT_HAND]: [],
   [EFFECT_TYPES.OPPONENT_DRAWS_RANDOM]: ["amount"],
+  [EFFECT_TYPES.OPPONENT_DRAWS_LIMITED]: ["amount"],
   [EFFECT_TYPES.SWAP_HAND_CARD_RANDOM]: [],
   [EFFECT_TYPES.FORCE_OPPONENT_SWAP_CARD]: ["amount"],
   [EFFECT_TYPES.RETURN_CARD_TO_DECK]: ["target"],
-  [EFFECT_TYPES.RESURRECT_TO_DECK]: ["target", "card_name"],
+  [EFFECT_TYPES.RESURRECT_TO_DECK]: ["target", "card_name", "card_type", "nature", "tag"],
   [EFFECT_TYPES.RESURRECT_FROM_DISCARD]: ["target", "card_name", "card_type"],
   [EFFECT_TYPES.RETURN_KNOCKED_OUT_TO_HAND]: ["target"],
   [EFFECT_TYPES.PREVENT_POINT_GAIN]: ["target", "duration"],
   [EFFECT_TYPES.CANCEL_KNOCKOUT_POINT]: ["target", "duration"],
   [EFFECT_TYPES.DISCARD_CARD]: ["target", "amount"],
   [EFFECT_TYPES.SWITCH_ACTIVE]: ["target"],
-  [EFFECT_TYPES.SWITCH_OWN_ACTIVE]: [],
+  [EFFECT_TYPES.SWITCH_OWN_ACTIVE]: ["target"],
   [EFFECT_TYPES.SWITCH_OPPONENT_ACTIVE]: [],
   [EFFECT_TYPES.FORCE_SWITCH_OPPONENT_ACTIVE]: [],
   [EFFECT_TYPES.OPPONENT_CHOOSES_NEW_ACTIVE]: [],
@@ -188,6 +209,13 @@ const EFFECT_FIELD_CONFIG = {
   [EFFECT_TYPES.PROMOTE_FROM_BENCH]: ["target"],
   [EFFECT_TYPES.SUMMON_FROM_BENCH]: ["target"],
   [EFFECT_TYPES.RESCUE_ACTIVE]: ["target"],
+  [EFFECT_TYPES.APPLY_POISON]: ["target", "amount", "duration"],
+  [EFFECT_TYPES.APPLY_BURN]: ["target", "duration"],
+  [EFFECT_TYPES.APPLY_FREEZE]: ["target", "duration"],
+  [EFFECT_TYPES.APPLY_PARALYSIS]: ["target", "duration"],
+  [EFFECT_TYPES.APPLY_CONFUSE]: ["target", "duration"],
+  [EFFECT_TYPES.APPLY_SLEEP]: ["target", "duration"],
+  [EFFECT_TYPES.REMOVE_CONDITIONS]: ["target", "condition_type"],
   [EFFECT_TYPES.BURN]: ["target", "duration"],
   [EFFECT_TYPES.PARALYZE]: ["target", "duration"],
   [EFFECT_TYPES.FREEZE]: ["target", "duration"],
@@ -214,15 +242,22 @@ const EFFECT_FIELD_CONFIG = {
   [EFFECT_TYPES.REDUCE_NEXT_DAMAGE]: ["target", "amount"],
   [EFFECT_TYPES.HALVE_DAMAGE_TAKEN]: ["target", "duration"],
   [EFFECT_TYPES.PREVENT_DAMAGE]: ["target", "duration"],
+  [EFFECT_TYPES.PREVENT_DAMAGE_TYPE]: ["target", "nature", "tag", "damage_type", "duration"],
   [EFFECT_TYPES.IMMUNE_TO_DAMAGE_TYPE]: ["target", "nature", "tag", "damage_type", "duration", "applies_to"],
   [EFFECT_TYPES.IMMUNE_TO_NEGATIVE_EFFECTS]: ["target", "duration"],
   [EFFECT_TYPES.IGNORE_TOOL_EFFECTS]: ["target", "duration"],
   [EFFECT_TYPES.INSTANT_KNOCKOUT_IF_DAMAGE_TYPE]: ["target", "nature", "tag", "damage_type", "duration"],
   [EFFECT_TYPES.REFLECT_DAMAGE]: ["target", "amount", "duration"],
+  [EFFECT_TYPES.REFLECT_DAMAGE_DOUBLED]: ["target", "value_formula", "duration"],
   [EFFECT_TYPES.REFLECT_DOUBLE_DAMAGE]: ["target", "duration"],
+  [EFFECT_TYPES.REFLECT_HALVED_SHARED]: ["target", "duration"],
   [EFFECT_TYPES.REDIRECT_DAMAGE]: ["target", "duration"],
+  [EFFECT_TYPES.REDIRECT_DAMAGE_TO_BENCH]: ["target", "duration"],
   [EFFECT_TYPES.SHARE_DAMAGE]: ["target", "duration"],
   [EFFECT_TYPES.COUNTER_DAMAGE]: ["target", "amount", "duration"],
+  [EFFECT_TYPES.CANCEL_KNOCKOUT]: ["target", "duration"],
+  [EFFECT_TYPES.RETURN_TO_HAND_ON_KO]: ["target"],
+  [EFFECT_TYPES.RETURN_TO_DECK_ON_KO]: ["target"],
   [EFFECT_TYPES.TAKE_DAMAGE_INSTEAD]: [],
   [EFFECT_TYPES.COIN_FLIP]: [],
   [EFFECT_TYPES.DICE_ROLL]: [],
@@ -243,24 +278,57 @@ const EFFECT_FIELD_CONFIG = {
   [EFFECT_TYPES.ON_TURN_START]: ["target"],
   [EFFECT_TYPES.ON_TURN_END]: ["target"],
   [EFFECT_TYPES.COPY_OPPONENT_ITEM]: ["target"],
+  [EFFECT_TYPES.TRANSFORM_INTO_BENCH_CARD]: ["target", "keep_negative_effects"],
   [EFFECT_TYPES.STATUS_ON_ATTACKER]: ["target", "tag", "duration"],
   [EFFECT_TYPES.TRANSFORM_INTO_OPPONENT_BENCH_CARD]: ["target", "keep_negative_effects"],
   [EFFECT_TYPES.ABSORB_OWN_BENCH_CARD]: ["target", "absorb_hp", "absorb_damage", "absorb_energy"],
   [EFFECT_TYPES.CREATE_TEMPORARY_UNIT]: ["card_name", "amount", "temporary_hp", "duration"],
   [EFFECT_TYPES.PLAY_ITEM_AS_UNIT]: ["target", "temporary_hp", "duration"],
   [EFFECT_TYPES.DISCARD_EQUIPMENT_AFTER_TRIGGER]: ["target", "condition"],
+  [EFFECT_TYPES.DISABLE_SAME_ATTACK_NEXT_TURN]: ["target", "duration"],
 };
 
 const effectFieldsFor = type => EFFECT_FIELD_CONFIG[type] ?? DEFAULT_EFFECT_FIELDS;
 
 const defaultTargetForEffect = type => {
   if ([
-    EFFECT_TYPES.DAMAGE_MODIFIER,
-    EFFECT_TYPES.ENERGY_GAIN,
-    EFFECT_TYPES.DAMAGE_REDIRECT,
-    EFFECT_TYPES.IMMUNITY,
-    EFFECT_TYPES.BLOCK_ACTION,
-    EFFECT_TYPES.REMOVE_CONDITION,
+    EFFECT_TYPES.ADD_ENERGY,
+    EFFECT_TYPES.ADD_TYPED_ENERGY,
+    EFFECT_TYPES.ENERGY_ANY_TYPE,
+    EFFECT_TYPES.ENERGY_COST_REDUCTION,
+    EFFECT_TYPES.ENERGY_REQUIRED_TYPE,
+    EFFECT_TYPES.HEAL,
+    EFFECT_TYPES.HEAL_BY_DAMAGE_DEALT,
+    EFFECT_TYPES.HEAL_PER_TURN,
+    EFFECT_TYPES.GAIN_HP_FROM_KO,
+    EFFECT_TYPES.BUFF_DAMAGE,
+    EFFECT_TYPES.BUFF_DAMAGE_THIS_TURN,
+    EFFECT_TYPES.BUFF_DAMAGE_NEXT_TURN,
+    EFFECT_TYPES.BUFF_EQUIPPED_CARD_DAMAGE,
+    EFFECT_TYPES.BUFF_DAMAGE_BY_TAG,
+    EFFECT_TYPES.BUFF_DAMAGE_BY_ATTACHED_ENERGY,
+    EFFECT_TYPES.BUFF_BASE_ATTRIBUTES,
+    EFFECT_TYPES.INCREASE_MAX_HP,
+    EFFECT_TYPES.BUFF_HEAL_AMOUNT,
+    EFFECT_TYPES.DOUBLE_DAMAGE_AGAINST_TYPE,
+    EFFECT_TYPES.WEAKNESS_OVERRIDE,
+    EFFECT_TYPES.ALPHA_POINT_OVERRIDE,
+    EFFECT_TYPES.IGNORE_RETREAT_COST,
+    EFFECT_TYPES.REDUCE_RETREAT_COST,
+    EFFECT_TYPES.ATTACK_FROM_BENCH,
+    EFFECT_TYPES.REMOVE_CONDITIONS,
+    EFFECT_TYPES.REDIRECT_DAMAGE,
+    EFFECT_TYPES.IMMUNE_TO_DAMAGE_TYPE,
+    EFFECT_TYPES.IMMUNE_TO_NEGATIVE_EFFECTS,
+    EFFECT_TYPES.IGNORE_TOOL_EFFECTS,
+    EFFECT_TYPES.REFLECT_DAMAGE,
+    EFFECT_TYPES.REFLECT_DOUBLE_DAMAGE,
+    EFFECT_TYPES.SHARE_DAMAGE,
+    EFFECT_TYPES.CANCEL_KNOCKOUT,
+    EFFECT_TYPES.RETURN_KNOCKED_OUT_TO_HAND,
+    EFFECT_TYPES.RETURN_TO_DECK_ON_KO,
+    EFFECT_TYPES.PREVENT_POINT_GAIN,
+    EFFECT_TYPES.CANCEL_KNOCKOUT_POINT,
   ].includes(type)) return TARGETS.SELF_ACTIVE;
   return TARGETS.OPPONENT_ACTIVE;
 };
@@ -269,13 +337,16 @@ const sanitizeEffectDraft = effect => {
   if (!effect?.type) return null;
 
   const fields = effectFieldsFor(effect.type);
+  const target = fields.includes("target") ? (effect.target || "") : "";
 
   return {
     ...(effect || {}),
     type: effect.type,
-    target: fields.includes("target") ? (effect.target || "") : "",
+    target,
     duration: effect.duration || DURATIONS.INSTANT,
     amount: parseInt(effect.amount, 10) || 0,
+    allow_manual_target: isManualTarget(target) || Boolean(effect.allow_manual_target),
+    target_filters: normalizeTargetFilters(effect.target_filters),
     priority: Math.max(0, parseInt(effect.priority, 10) || 10),
     value_formula: fields.includes("value_formula") ? (effect.value_formula || effect.valueFormula || "") : "",
     dice_type: fields.includes("dice_type") ? (effect.dice_type || effect.diceType || "") : "",
@@ -330,6 +401,8 @@ const NUMBER_CONDITION_TYPES = new Set([
 const NO_VALUE_CONDITION_TYPES = new Set([
   ABILITY_CONDITION_TYPES.TARGET_IS_DAMAGED,
   ABILITY_CONDITION_TYPES.HAS_EQUIPMENT,
+  ABILITY_CONDITION_TYPES.TARGET_HAS_EQUIPMENT,
+  ABILITY_CONDITION_TYPES.TARGET_HAS_ENERGY,
   ABILITY_CONDITION_TYPES.WOULD_BE_KNOCKED_OUT,
   ABILITY_CONDITION_TYPES.ONCE_PER_TURN,
 ]);
@@ -343,7 +416,8 @@ const defaultRuleConditionValue = type => {
   if (NATURE_CONDITION_TYPES.has(type) || CARD_TYPE_CONDITION_TYPES.has(type)) return [];
   if (type === ABILITY_CONDITION_TYPES.SELF_HAS_ENERGY_TYPE) return ENERGY_TYPES[0] || "";
   if (NUMBER_CONDITION_TYPES.has(type)) return 1;
-  if (type === ABILITY_CONDITION_TYPES.BENCH_HAS_CARD_NAME) return "";
+  if ([ABILITY_CONDITION_TYPES.BENCH_HAS_CARD_NAME, ABILITY_CONDITION_TYPES.TARGET_HAS_TAG, ABILITY_CONDITION_TYPES.TARGET_IS_CARD_NAME].includes(type)) return "";
+  if (type === ABILITY_CONDITION_TYPES.TARGET_HAS_CONDITION) return ACTIVE_CONDITION_TYPES.POISON;
   if (META_CONDITION_TYPES.has(type)) return { key: CARD_META_KEYS[0], values: [] };
   return "";
 };
@@ -416,6 +490,25 @@ const RuleConditionValueControl = ({ condition, onChange, className }) => {
     return <input value={draft.value || ""} onChange={e => onChange(e.target.value)} placeholder="Nome da carta" className={className} />;
   }
 
+  if (draft.type === ABILITY_CONDITION_TYPES.TARGET_IS_CARD_NAME) {
+    return <input value={draft.value || ""} onChange={e => onChange(e.target.value)} placeholder="Nome da carta" className={className} />;
+  }
+
+  if (draft.type === ABILITY_CONDITION_TYPES.TARGET_HAS_TAG) {
+    return <input value={Array.isArray(draft.value) ? draft.value.join(", ") : draft.value || ""} onChange={e => onChange(e.target.value.split(",").map(item => item.trim().toUpperCase()).filter(Boolean))} placeholder="Tags separadas por virgula" className={className} />;
+  }
+
+  if (draft.type === ABILITY_CONDITION_TYPES.TARGET_HAS_CONDITION) {
+    return (
+      <select value={draft.value || ACTIVE_CONDITION_TYPES.POISON} onChange={e => onChange(e.target.value)} className={className}>
+        <option value="ANY">Qualquer status</option>
+        {Object.values(ACTIVE_CONDITION_TYPES).map(type => (
+          <option key={type} value={type}>{ACTIVE_CONDITION_LABELS[type]}</option>
+        ))}
+      </select>
+    );
+  }
+
   if (META_CONDITION_TYPES.has(draft.type)) {
     const value = typeof draft.value === "object" && !Array.isArray(draft.value) ? draft.value : { key: CARD_META_KEYS[0], values: [] };
     return (
@@ -449,10 +542,95 @@ const getEvolutionStage = card => {
   return stages[String(card.evolution_number || "II").toUpperCase()] || 2;
 };
 
+const makeBlankTargetFilter = () => ({
+  type: TARGET_FILTER_OPTIONS[0]?.value || ABILITY_CONDITION_TYPES.TARGET_NATURE_IN,
+  value: defaultRuleConditionValue(TARGET_FILTER_OPTIONS[0]?.value || ABILITY_CONDITION_TYPES.TARGET_NATURE_IN),
+  negate: false,
+});
+
+const TargetFiltersEditor = ({ filters = [], onChange, inputCls }) => {
+  const normalized = normalizeTargetFilters(filters);
+  const [draft, setDraft] = useState(makeBlankTargetFilter);
+  const draftType = draft.type || TARGET_FILTER_OPTIONS[0]?.value || ABILITY_CONDITION_TYPES.TARGET_NATURE_IN;
+  const draftValue = draft.value === undefined ? defaultRuleConditionValue(draftType) : draft.value;
+
+  const updateDraftType = type => {
+    setDraft({ type, value: defaultRuleConditionValue(type), negate: false });
+  };
+
+  const addFilter = () => {
+    const nextFilter = {
+      type: draftType,
+      value: draftValue,
+      negate: Boolean(draft.negate),
+    };
+    onChange([...normalized, nextFilter]);
+    setDraft(makeBlankTargetFilter());
+  };
+
+  return (
+    <div className="basis-full rounded-lg border border-cyan-400/20 bg-cyan-500/5 p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-cyan-200/80">Filtros de alvo</div>
+          <div className="text-[10px] text-slate-500">Opcional. Limita quais cartas podem ser escolhidas no duelo.</div>
+        </div>
+        <span className="text-[10px] text-slate-500">{normalized.length} filtro(s)</span>
+      </div>
+
+      {normalized.length > 0 && (
+        <div className="mb-3 flex flex-wrap gap-2">
+          {normalized.map((filter, index) => (
+            <button
+              key={`${filter.type}-${index}`}
+              type="button"
+              onClick={() => onChange(normalized.filter((_, idx) => idx !== index))}
+              className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-300 hover:border-rose-500/60 hover:text-rose-200"
+            >
+              {abilityConditionLabel(filter.type)}{abilityConditionValueLabel(filter) ? `: ${abilityConditionValueLabel(filter)}` : ""} <X size={11} className="inline" />
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-2 lg:grid-cols-[minmax(12rem,18rem)_minmax(18rem,1fr)]">
+        <select value={draftType} onChange={e => updateDraftType(e.target.value)} className={inputCls}>
+          {TARGET_FILTER_OPTIONS.map(option => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+        <RuleConditionValueControl
+          condition={{ ...draft, type: draftType, value: draftValue }}
+          onChange={value => setDraft(current => ({ ...current, type: draftType, value }))}
+          className={inputCls}
+        />
+        <div className="flex flex-wrap items-center justify-end gap-2 lg:col-span-2">
+          <label className="flex h-10 items-center gap-2 rounded-lg border border-slate-800 bg-slate-950 px-3 text-xs text-slate-300">
+            <input type="checkbox" checked={Boolean(draft.negate)} onChange={e => setDraft(current => ({ ...current, negate: e.target.checked }))} />
+            Negar
+          </label>
+          <button
+            type="button"
+            onClick={addFilter}
+            className="inline-flex h-10 min-w-12 items-center justify-center rounded-lg border border-cyan-500/40 bg-cyan-500/20 px-4 text-xs text-cyan-100 hover:bg-cyan-500/30"
+          >
+            <Plus size={13} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const EffectControls = ({ effect, onChange, onAdd }) => {
   const fields = effectFieldsFor(effect.type);
   const inputCls = "w-full min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none";
   const show = field => fields.includes(field);
+  const manualTargetSelected = isManualTarget(effect.target) || Boolean(effect.allow_manual_target);
+  const handleTargetChange = value => {
+    onChange("target", value);
+    if (isManualTarget(value)) onChange("allow_manual_target", true);
+  };
 
   const fieldLabels = {
     amount: effect.type?.startsWith("DAMAGE") ? "Dano / valor" : "Valor",
@@ -518,9 +696,9 @@ const EffectControls = ({ effect, onChange, onAdd }) => {
         {show("target") && (
           <label className="min-w-[11rem] flex-[1_1_13rem]">
             <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">{fieldLabels.target}</span>
-            <select value={effect.target || TARGETS.OPPONENT_ACTIVE} onChange={e => onChange("target", e.target.value)} className={inputCls}>
-              {Object.values(TARGETS).map(target => (
-                <option key={target} value={target}>{TARGET_LABELS[target]}</option>
+            <select value={effect.target || TARGETS.OPPONENT_ACTIVE} onChange={e => handleTargetChange(e.target.value)} className={inputCls}>
+              {TARGET_OPTIONS.map(option => (
+                <option key={option.value} value={option.value}>{option.label}</option>
               ))}
             </select>
           </label>
@@ -738,8 +916,8 @@ const EffectControls = ({ effect, onChange, onAdd }) => {
           <label className="min-w-[11rem] flex-[1_1_13rem]">
             <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">{fieldLabels.duration}</span>
             <select value={effect.duration || DURATIONS.INSTANT} onChange={e => onChange("duration", e.target.value)} className={inputCls}>
-              {Object.values(DURATIONS).map(duration => (
-                <option key={duration} value={duration}>{DURATION_LABELS[duration]}</option>
+              {DURATION_OPTIONS.map(option => (
+                <option key={option.value} value={option.value}>{option.label}</option>
               ))}
             </select>
           </label>
@@ -754,6 +932,20 @@ const EffectControls = ({ effect, onChange, onAdd }) => {
               ))}
             </select>
           </label>
+        )}
+
+        {manualTargetSelected && (
+          <TargetFiltersEditor
+            filters={effect.target_filters}
+            onChange={filters => onChange("target_filters", filters)}
+            inputCls={inputCls}
+          />
+        )}
+
+        {manualTargetSelected && (
+          <div className="basis-full rounded-lg border border-cyan-400/25 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100">
+            Este efeito exigirá escolha manual do alvo durante o duelo.
+          </div>
         )}
 
         <div className="mt-2 flex basis-full justify-end">
@@ -941,7 +1133,7 @@ export default function CardBuilderPage() {
     energy_costs: [],
     effects: [],
     rules: normalizeAbilityRules(ability.rules),
-    rule_to_add: { ...makeBlankRule(), trigger: ABILITY_TRIGGERS.BEFORE_DAMAGE_TAKEN },
+    rule_to_add: { ...makeBlankRule(), trigger: ABILITY_TRIGGERS.BEFORE_ALLY_ACTIVE_TAKES_DAMAGE },
   });
 
   const openAbilityForm = () => setAbilityDraft(buildAbilityDraft());
@@ -1319,7 +1511,7 @@ export default function CardBuilderPage() {
         rules: [
           ...normalizeAbilityRules(d.rules),
           {
-            trigger: rule.trigger || ABILITY_TRIGGERS.BEFORE_DAMAGE_TAKEN,
+            trigger: rule.trigger || ABILITY_TRIGGERS.BEFORE_ALLY_ACTIVE_TAKES_DAMAGE,
             conditions: normalizeAbilityConditions(rule.conditions),
             effects,
             duration: rule.duration || DURATIONS.INSTANT,
@@ -2014,8 +2206,8 @@ export default function CardBuilderPage() {
                           onChange={e => updateRuleDraft("trigger", e.target.value)}
                           className="w-full min-w-0 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
                         >
-                          {Object.values(ABILITY_TRIGGERS).map(trigger => (
-                            <option key={trigger} value={trigger}>{ABILITY_TRIGGER_LABELS[trigger]}</option>
+                          {ABILITY_TRIGGER_OPTIONS.map(option => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
                           ))}
                         </select>
                       </label>
@@ -2026,8 +2218,8 @@ export default function CardBuilderPage() {
                           onChange={e => updateRuleDraft("duration", e.target.value)}
                           className="w-full min-w-0 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
                         >
-                          {Object.values(DURATIONS).map(duration => (
-                            <option key={duration} value={duration}>{DURATION_LABELS[duration]}</option>
+                          {DURATION_OPTIONS.map(option => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
                           ))}
                         </select>
                       </label>
@@ -2043,8 +2235,8 @@ export default function CardBuilderPage() {
                             onChange={e => updateRuleConditionDraft("type", e.target.value)}
                             className="w-full min-w-0 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
                           >
-                            {Object.values(ABILITY_CONDITION_TYPES).map(type => (
-                              <option key={type} value={type}>{ABILITY_CONDITION_LABELS[type]}</option>
+                            {ABILITY_CONDITION_OPTIONS.map(option => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
                             ))}
                           </select>
                         </label>
@@ -2220,12 +2412,12 @@ export default function CardBuilderPage() {
                       <label>
                         <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Gatilho</span>
                         <select
-                          value={passiveAbilityDraft.rule_to_add?.trigger || ABILITY_TRIGGERS.BEFORE_DAMAGE_TAKEN}
+                          value={passiveAbilityDraft.rule_to_add?.trigger || ABILITY_TRIGGERS.BEFORE_ALLY_ACTIVE_TAKES_DAMAGE}
                           onChange={e => updatePassiveRuleDraft("trigger", e.target.value)}
                           className="w-full min-w-0 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm focus:border-cyan-500 focus:outline-none"
                         >
-                          {Object.values(ABILITY_TRIGGERS).map(trigger => (
-                            <option key={trigger} value={trigger}>{ABILITY_TRIGGER_LABELS[trigger]}</option>
+                          {ABILITY_TRIGGER_OPTIONS.map(option => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
                           ))}
                         </select>
                       </label>
@@ -2236,8 +2428,8 @@ export default function CardBuilderPage() {
                           onChange={e => updatePassiveRuleDraft("duration", e.target.value)}
                           className="w-full min-w-0 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm focus:border-cyan-500 focus:outline-none"
                         >
-                          {Object.values(DURATIONS).map(duration => (
-                            <option key={duration} value={duration}>{DURATION_LABELS[duration]}</option>
+                          {DURATION_OPTIONS.map(option => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
                           ))}
                         </select>
                       </label>
@@ -2253,8 +2445,8 @@ export default function CardBuilderPage() {
                             onChange={e => updatePassiveRuleConditionDraft("type", e.target.value)}
                             className="w-full min-w-0 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm focus:border-cyan-500 focus:outline-none"
                           >
-                            {Object.values(ABILITY_CONDITION_TYPES).map(type => (
-                              <option key={type} value={type}>{ABILITY_CONDITION_LABELS[type]}</option>
+                            {ABILITY_CONDITION_OPTIONS.map(option => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
                             ))}
                           </select>
                         </label>
@@ -2357,8 +2549,11 @@ export default function CardBuilderPage() {
                   <EffectControls
                     effect={cardEffectDraft}
                     onChange={(field, value) => setCardEffectDraft(current => ({
-                      ...current,
+                      ...(field === "type" ? BLANK_EFFECT : current),
                       [field]: field === "amount" ? parseInt(value, 10) || 0 : value,
+                      target: field === "type"
+                        ? (effectFieldsFor(value).includes("target") ? defaultTargetForEffect(value) : "")
+                        : current.target,
                     }))}
                     onAdd={() => {
                       addCardEffect("effects", cardEffectDraft);
@@ -2392,8 +2587,11 @@ export default function CardBuilderPage() {
                   <EffectControls
                     effect={passiveEffectDraft}
                     onChange={(field, value) => setPassiveEffectDraft(current => ({
-                      ...current,
+                      ...(field === "type" ? BLANK_EFFECT : current),
                       [field]: field === "amount" ? parseInt(value, 10) || 0 : value,
+                      target: field === "type"
+                        ? (effectFieldsFor(value).includes("target") ? defaultTargetForEffect(value) : "")
+                        : current.target,
                     }))}
                     onAdd={() => {
                       addCardEffect("passive_effects", passiveEffectDraft);

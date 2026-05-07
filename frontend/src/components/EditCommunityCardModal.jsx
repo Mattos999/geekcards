@@ -5,9 +5,11 @@ import { EnergyCostSymbols } from "./EnergyCostSymbols";
 import { normalizeAbilityEnergyCosts, sanitizeEnergyCosts, totalEnergyCost } from "../lib/energyCosts";
 import {
   ABILITY_CONDITION_LABELS,
+  ABILITY_CONDITION_OPTIONS,
   ABILITY_CONDITION_TYPES,
   ABILITY_POSITION_OPTIONS,
   ABILITY_TRIGGER_LABELS,
+  ABILITY_TRIGGER_OPTIONS,
   ABILITY_TRIGGERS,
   ACTIVE_CONDITION_LABELS,
   ACTIVE_CONDITION_TYPES,
@@ -19,15 +21,18 @@ import {
   COMMON_META_WEAPONS,
   DURATIONS,
   DURATION_LABELS,
+  DURATION_OPTIONS,
   EFFECT_CONDITIONS,
   EFFECT_CONDITION_LABELS,
   EFFECT_TYPE_OPTIONS,
   EFFECT_TYPES,
   TARGETS,
   TARGET_LABELS,
+  TARGET_OPTIONS,
   abilityConditionValueLabel,
   advancedEffectExtraFields,
   effectSummary,
+  isManualTarget,
   normalizeCardMeta,
   normalizeAbilityConditions,
   normalizeAbilityRules,
@@ -95,7 +100,7 @@ const makeBlankRule = () => ({
 
 const makeBlankPassiveRule = () => ({
   ...makeBlankRule(),
-  trigger: ABILITY_TRIGGERS.BEFORE_DAMAGE_TAKEN,
+  trigger: ABILITY_TRIGGERS.BEFORE_ALLY_ACTIVE_TAKES_DAMAGE,
 });
 
 const makeBlankPassiveAbility = () => ({
@@ -262,8 +267,17 @@ const EFFECT_FIELD_CONFIG = {
   [EFFECT_TYPES.TRANSFORM]: ["target", "card_name", "keep_negative_effects", "priority", "description"],
   [EFFECT_TYPES.COPY_ITEM]: ["target", "priority", "description"],
   [EFFECT_TYPES.DAMAGE]: ["target", "amount"],
+  [EFFECT_TYPES.DAMAGE_FIXED]: ["target", "amount", "priority"],
+  [EFFECT_TYPES.DAMAGE_BY_FORMULA]: ["target", "value_formula", "amount", "priority", "description"],
   [EFFECT_TYPES.HEAL]: ["target", "amount"],
+  [EFFECT_TYPES.HEAL_BENCH_CARD]: ["target", "amount"],
+  [EFFECT_TYPES.HEAL_ANY_ALLY]: ["target", "amount"],
+  [EFFECT_TYPES.HEAL_ON_ENERGY_ATTACH]: ["target", "amount"],
+  [EFFECT_TYPES.HEAL_BENCH_GROUP]: ["target", "amount", "duration"],
+  [EFFECT_TYPES.GAIN_HP_FROM_KO]: ["target", "amount"],
+  [EFFECT_TYPES.ADD_ENERGY_TYPED]: ["target", "energy_type", "amount"],
   [EFFECT_TYPES.ADD_TYPED_ENERGY]: ["target", "energy_type", "amount"],
+  [EFFECT_TYPES.ADD_ENERGY_TO_TARGET]: ["target", "energy_type", "amount"],
   [EFFECT_TYPES.ADD_ENERGY]: ["target", "amount"],
   [EFFECT_TYPES.ADD_MULTIPLE_ENERGY]: ["target", "energy_type", "amount"],
   [EFFECT_TYPES.DAMAGE_RANDOM_TARGETS]: ["target", "amount", "random_targets_count"],
@@ -281,6 +295,7 @@ const EFFECT_FIELD_CONFIG = {
   [EFFECT_TYPES.DOUBLE_DAMAGE_AGAINST_TYPE]: ["target", "nature", "duration"],
   [EFFECT_TYPES.TAKE_DAMAGE_INSTEAD]: [],
   [EFFECT_TYPES.WEAKNESS_OVERRIDE]: ["target", "nature", "duration"],
+  [EFFECT_TYPES.ALLOW_ANY_ENERGY_TYPE]: ["target", "duration"],
   [EFFECT_TYPES.ENERGY_REQUIRED_TYPE]: ["target", "energy_type", "duration"],
   [EFFECT_TYPES.REMOVE_ENERGY]: ["target", "amount", "energy_type"],
   [EFFECT_TYPES.REMOVE_RANDOM_ENERGY]: ["target", "amount", "random"],
@@ -291,20 +306,38 @@ const EFFECT_FIELD_CONFIG = {
   [EFFECT_TYPES.IF_BENCH_COUNT_BY_NATURE]: ["nature", "amount"],
   [EFFECT_TYPES.BUFF_EQUIPPED_CARD_DAMAGE]: ["target", "amount", "condition"],
   [EFFECT_TYPES.SEARCH_CARD_BY_FILTER]: ["amount", "filter_type", "nature", "card_type", "card_name", "random"],
+  [EFFECT_TYPES.RESURRECT_TO_DECK]: ["target", "card_name", "card_type", "nature", "tag"],
+  [EFFECT_TYPES.RESURRECT_FROM_DISCARD]: ["target", "card_name", "card_type", "nature", "tag"],
   [EFFECT_TYPES.RETURN_KNOCKED_OUT_TO_HAND]: ["target"],
   [EFFECT_TYPES.PREVENT_POINT_GAIN]: ["target", "duration"],
   [EFFECT_TYPES.CANCEL_KNOCKOUT_POINT]: ["target", "duration"],
+  [EFFECT_TYPES.CANCEL_KNOCKOUT]: ["target", "duration"],
+  [EFFECT_TYPES.RETURN_TO_HAND_ON_KO]: ["target"],
+  [EFFECT_TYPES.RETURN_TO_DECK_ON_KO]: ["target"],
+  [EFFECT_TYPES.APPLY_POISON]: ["target", "amount", "duration"],
+  [EFFECT_TYPES.APPLY_BURN]: ["target", "duration"],
+  [EFFECT_TYPES.APPLY_FREEZE]: ["target", "duration"],
+  [EFFECT_TYPES.APPLY_PARALYSIS]: ["target", "duration"],
+  [EFFECT_TYPES.APPLY_CONFUSE]: ["target", "duration"],
+  [EFFECT_TYPES.APPLY_SLEEP]: ["target", "duration"],
+  [EFFECT_TYPES.REMOVE_CONDITIONS]: ["target", "condition_type"],
   [EFFECT_TYPES.POISON]: ["target", "amount", "duration"],
   [EFFECT_TYPES.DAMAGE_OVER_TIME]: ["target", "amount", "duration"],
   [EFFECT_TYPES.IMMUNE_TO_DAMAGE_TYPE]: ["target", "nature", "tag", "damage_type", "duration", "applies_to"],
+  [EFFECT_TYPES.PREVENT_DAMAGE_TYPE]: ["target", "nature", "tag", "damage_type", "duration"],
   [EFFECT_TYPES.INSTANT_KNOCKOUT_IF_DAMAGE_TYPE]: ["target", "nature", "tag", "damage_type", "duration"],
+  [EFFECT_TYPES.REFLECT_DAMAGE_DOUBLED]: ["target", "value_formula", "duration"],
+  [EFFECT_TYPES.REFLECT_HALVED_SHARED]: ["target", "duration"],
+  [EFFECT_TYPES.REDIRECT_DAMAGE_TO_BENCH]: ["target", "duration"],
   [EFFECT_TYPES.COUNTER_DAMAGE]: ["target", "amount", "duration"],
   [EFFECT_TYPES.STATUS_ON_ATTACKER]: ["target", "tag", "duration"],
   [EFFECT_TYPES.TRANSFORM_INTO_OPPONENT_BENCH_CARD]: ["target", "keep_negative_effects"],
+  [EFFECT_TYPES.TRANSFORM_INTO_BENCH_CARD]: ["target", "keep_negative_effects"],
   [EFFECT_TYPES.ABSORB_OWN_BENCH_CARD]: ["target", "absorb_hp", "absorb_damage", "absorb_energy"],
   [EFFECT_TYPES.CREATE_TEMPORARY_UNIT]: ["card_name", "amount", "temporary_hp", "duration"],
   [EFFECT_TYPES.PLAY_ITEM_AS_UNIT]: ["target", "temporary_hp", "duration"],
   [EFFECT_TYPES.DISCARD_EQUIPMENT_AFTER_TRIGGER]: ["target", "condition"],
+  [EFFECT_TYPES.DISABLE_SAME_ATTACK_NEXT_TURN]: ["target", "duration"],
 };
 const DEFAULT_EFFECT_FIELDS = ["target", "amount", "duration"];
 
@@ -312,22 +345,56 @@ const effectFieldsFor = type => EFFECT_FIELD_CONFIG[type] || DEFAULT_EFFECT_FIEL
 
 const defaultTargetForEffect = type => {
   if ([
-    EFFECT_TYPES.DAMAGE_MODIFIER,
-    EFFECT_TYPES.ENERGY_GAIN,
-    EFFECT_TYPES.DAMAGE_REDIRECT,
-    EFFECT_TYPES.IMMUNITY,
-    EFFECT_TYPES.BLOCK_ACTION,
-    EFFECT_TYPES.REMOVE_CONDITION,
+    EFFECT_TYPES.ADD_ENERGY,
+    EFFECT_TYPES.ADD_TYPED_ENERGY,
+    EFFECT_TYPES.ENERGY_ANY_TYPE,
+    EFFECT_TYPES.ENERGY_COST_REDUCTION,
+    EFFECT_TYPES.ENERGY_REQUIRED_TYPE,
+    EFFECT_TYPES.HEAL,
+    EFFECT_TYPES.HEAL_BY_DAMAGE_DEALT,
+    EFFECT_TYPES.HEAL_PER_TURN,
+    EFFECT_TYPES.GAIN_HP_FROM_KO,
+    EFFECT_TYPES.BUFF_DAMAGE,
+    EFFECT_TYPES.BUFF_DAMAGE_THIS_TURN,
+    EFFECT_TYPES.BUFF_DAMAGE_NEXT_TURN,
+    EFFECT_TYPES.BUFF_EQUIPPED_CARD_DAMAGE,
+    EFFECT_TYPES.BUFF_DAMAGE_BY_TAG,
+    EFFECT_TYPES.BUFF_DAMAGE_BY_ATTACHED_ENERGY,
+    EFFECT_TYPES.BUFF_BASE_ATTRIBUTES,
+    EFFECT_TYPES.INCREASE_MAX_HP,
+    EFFECT_TYPES.BUFF_HEAL_AMOUNT,
+    EFFECT_TYPES.DOUBLE_DAMAGE_AGAINST_TYPE,
+    EFFECT_TYPES.WEAKNESS_OVERRIDE,
+    EFFECT_TYPES.ALPHA_POINT_OVERRIDE,
+    EFFECT_TYPES.IGNORE_RETREAT_COST,
+    EFFECT_TYPES.REDUCE_RETREAT_COST,
+    EFFECT_TYPES.ATTACK_FROM_BENCH,
+    EFFECT_TYPES.REMOVE_CONDITIONS,
+    EFFECT_TYPES.REDIRECT_DAMAGE,
+    EFFECT_TYPES.IMMUNE_TO_DAMAGE_TYPE,
+    EFFECT_TYPES.IMMUNE_TO_NEGATIVE_EFFECTS,
+    EFFECT_TYPES.IGNORE_TOOL_EFFECTS,
+    EFFECT_TYPES.REFLECT_DAMAGE,
+    EFFECT_TYPES.REFLECT_DOUBLE_DAMAGE,
+    EFFECT_TYPES.SHARE_DAMAGE,
+    EFFECT_TYPES.CANCEL_KNOCKOUT,
+    EFFECT_TYPES.RETURN_KNOCKED_OUT_TO_HAND,
+    EFFECT_TYPES.RETURN_TO_DECK_ON_KO,
+    EFFECT_TYPES.PREVENT_POINT_GAIN,
+    EFFECT_TYPES.CANCEL_KNOCKOUT_POINT,
   ].includes(type)) return TARGETS.SELF_ACTIVE;
   return TARGETS.OPPONENT_ACTIVE;
 };
 
 const sanitizeEffectDraft = effect => {
   const fields = effectFieldsFor(effect?.type);
+  const target = fields.includes("target") ? (effect?.target || "") : "";
   return {
     ...(effect || BLANK_EFFECT),
+    target,
     duration: effect?.duration || DURATIONS.INSTANT,
     amount: parseInt(effect?.amount, 10) || 0,
+    allow_manual_target: isManualTarget(target) || Boolean(effect?.allow_manual_target),
     priority: Math.max(0, parseInt(effect?.priority, 10) || 10),
     value_formula: fields.includes("value_formula") ? (effect?.value_formula || effect?.valueFormula || "") : "",
     dice_type: fields.includes("dice_type") ? (effect?.dice_type || effect?.diceType || "") : "",
@@ -381,6 +448,11 @@ const EffectDropdown = ({ title = "Opcoes de efeito", subtitle, children }) => {
 
 const EffectControls = ({ effect, onChange, onAdd }) => {
   const inputCls = "w-full min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none";
+  const manualTargetSelected = isManualTarget(effect.target);
+  const handleTargetChange = value => {
+    onChange("target", value);
+    if (isManualTarget(value)) onChange("allow_manual_target", true);
+  };
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -392,8 +464,8 @@ const EffectControls = ({ effect, onChange, onAdd }) => {
         </label>
         <label className="min-w-0">
           <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Alvo</span>
-          <select value={effect.target || TARGETS.OPPONENT_ACTIVE} onChange={e => onChange("target", e.target.value)} className={inputCls}>
-            {Object.values(TARGETS).map(target => <option key={target} value={target}>{TARGET_LABELS[target]}</option>)}
+          <select value={effect.target || TARGETS.OPPONENT_ACTIVE} onChange={e => handleTargetChange(e.target.value)} className={inputCls}>
+            {TARGET_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </label>
         <label className="min-w-0">
@@ -403,7 +475,7 @@ const EffectControls = ({ effect, onChange, onAdd }) => {
         <label className="min-w-0">
           <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Duração</span>
           <select value={effect.duration || DURATIONS.INSTANT} onChange={e => onChange("duration", e.target.value)} className={inputCls}>
-            {Object.values(DURATIONS).map(duration => <option key={duration} value={duration}>{DURATION_LABELS[duration]}</option>)}
+            {DURATION_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </label>
         <label className="min-w-0">
@@ -441,6 +513,11 @@ const EffectControls = ({ effect, onChange, onAdd }) => {
           <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Marcador</span>
           <input value={effect.tag || ""} onChange={e => onChange("tag", e.target.value)} className={inputCls} />
         </label>
+        {manualTargetSelected && (
+          <div className="rounded-lg border border-cyan-400/25 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100 sm:col-span-2">
+            Este efeito exigirá escolha manual do alvo durante o duelo.
+          </div>
+        )}
         <div className="flex justify-end sm:col-span-2">
           <button
             type="button"
@@ -459,6 +536,11 @@ const DynamicEffectControls = ({ effect, onChange, onAdd }) => {
   const inputCls = "w-full min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none";
   const fields = effectFieldsFor(effect.type);
   const show = field => fields.includes(field);
+  const manualTargetSelected = isManualTarget(effect.target);
+  const handleTargetChange = value => {
+    onChange("target", value);
+    if (isManualTarget(value)) onChange("allow_manual_target", true);
+  };
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
       <div className="flex flex-wrap items-end gap-2">
@@ -471,8 +553,8 @@ const DynamicEffectControls = ({ effect, onChange, onAdd }) => {
         {show("target") && (
           <label className="min-w-[11rem] flex-[1_1_13rem]">
             <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Alvo</span>
-            <select value={effect.target || TARGETS.OPPONENT_ACTIVE} onChange={e => onChange("target", e.target.value)} className={inputCls}>
-              {Object.values(TARGETS).map(target => <option key={target} value={target}>{TARGET_LABELS[target]}</option>)}
+            <select value={effect.target || TARGETS.OPPONENT_ACTIVE} onChange={e => handleTargetChange(e.target.value)} className={inputCls}>
+              {TARGET_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </label>
         )}
@@ -486,7 +568,7 @@ const DynamicEffectControls = ({ effect, onChange, onAdd }) => {
           <label className="min-w-[11rem] flex-[1_1_13rem]">
             <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Duração</span>
             <select value={effect.duration || DURATIONS.INSTANT} onChange={e => onChange("duration", e.target.value)} className={inputCls}>
-              {Object.values(DURATIONS).map(duration => <option key={duration} value={duration}>{DURATION_LABELS[duration]}</option>)}
+              {DURATION_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </label>
         )}
@@ -667,6 +749,11 @@ const DynamicEffectControls = ({ effect, onChange, onAdd }) => {
             {field}
           </label>
         ))}
+        {manualTargetSelected && (
+          <div className="basis-full rounded-lg border border-cyan-400/25 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100">
+            Este efeito exigirá escolha manual do alvo durante o duelo.
+          </div>
+        )}
         <div className="mt-2 flex basis-full justify-end">
           <button
             type="button"
@@ -686,9 +773,11 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
   const [uploading, setUploading] = useState(false);
   const [form, setForm] = useState(null);
   const [evolutionOptions, setEvolutionOptions] = useState([]);
+  const [editingAbilityIndex, setEditingAbilityIndex] = useState(null);
 
   useEffect(() => {
     if (!card) return;
+    setEditingAbilityIndex(null);
     setForm({
       name: card.name || "",
       card_type: card.card_type || "Personagem",
@@ -746,7 +835,9 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
   useEffect(() => {
     (async () => {
       try {
-        const { data } = await api.get("/cards");
+        const { data } = await api.get("/community/cards", {
+          params: { card_type: "Personagem" },
+        });
         setEvolutionOptions(data || []);
       } catch (e) {
         toast.error(formatApiError(e));
@@ -851,6 +942,7 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
   };
 
   const addAbility = () => {
+    const nextIndex = form.abilities.length;
     if (form.abilities.length >= 3) { toast.error("Máximo 3 habilidades"); return; }
     set("abilities", [
       ...form.abilities,
@@ -863,10 +955,16 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
         energy_amount_to_add: 1,
       }
     ]);
+    setEditingAbilityIndex(nextIndex);
   };
 
   const removeAbility = (i) => {
     set("abilities", form.abilities.filter((_, idx) => idx !== i));
+    setEditingAbilityIndex(current => {
+      if (current === null) return null;
+      if (current === i) return null;
+      return current > i ? current - 1 : current;
+    });
   };
 
   const updatePassiveAbility = (i, field, value) => {
@@ -1205,7 +1303,7 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
       rules: [
         ...normalizeAbilityRules(ability.rules),
         {
-          trigger: rule.trigger || ABILITY_TRIGGERS.BEFORE_DAMAGE_TAKEN,
+          trigger: rule.trigger || ABILITY_TRIGGERS.BEFORE_ALLY_ACTIVE_TAKES_DAMAGE,
           conditions: normalizeAbilityConditions(rule.conditions),
           effects,
           duration: rule.duration || DURATIONS.INSTANT,
@@ -1229,8 +1327,11 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
     setForm(f => ({
       ...f,
       [draftField]: {
-        ...(f[draftField] || BLANK_EFFECT),
+        ...(field === "type" ? BLANK_EFFECT : (f[draftField] || BLANK_EFFECT)),
         [field]: field === "amount" ? parseInt(value, 10) || 0 : value,
+        target: field === "type"
+          ? (effectFieldsFor(value).includes("target") ? defaultTargetForEffect(value) : "")
+          : (f[draftField]?.target || ""),
       },
     }));
   };
@@ -1584,11 +1685,53 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
             </button>
           </div>
           <div className="space-y-3">
-            {form.abilities.map((ab, i) => (
+            {form.abilities.map((ab, i) => {
+              const isEditing = editingAbilityIndex === i;
+              return (
               <div key={i} className="p-3 rounded-lg bg-slate-900/60 border border-slate-800 space-y-2">
+                {!isEditing ? (
+                  <div className="flex items-start gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-xs font-semibold text-indigo-300">
+                        {ab.name || `Habilidade ${i + 1}`}
+                      </div>
+                      {ab.description && (
+                        <div className="mt-0.5 text-xs leading-relaxed text-slate-400">{ab.description}</div>
+                      )}
+                      <div className="mt-1 flex flex-wrap items-center gap-3 text-[10px]">
+                        <span className="font-mono text-amber-400">Dano {ab.damage ?? 0}</span>
+                        <EnergyCostSymbols ability={ab} size="xs" />
+                        <span className="text-slate-500">{normalizeEffects(ab.effects).length} efeito(s)</span>
+                        <span className="text-cyan-300/80">{normalizeAbilityRules(ab.rules).length} regra(s)</span>
+                      </div>
+                      {normalizeEffects(ab.effects).length > 0 && (
+                        <div className="mt-1 text-[10px] text-slate-500">
+                          {normalizeEffects(ab.effects).map(effectSummary).join(" | ")}
+                        </div>
+                      )}
+                      {normalizeAbilityRules(ab.rules).length > 0 && (
+                        <div className="mt-1 text-[10px] text-cyan-300/80">
+                          {normalizeAbilityRules(ab.rules).map(ruleSummary).join(" | ")}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEditingAbilityIndex(i)}
+                      className="shrink-0 text-xs text-slate-500 transition-colors hover:text-indigo-300"
+                    >
+                      Editar
+                    </button>
+                    <button type="button" onClick={() => removeAbility(i)} className="shrink-0 text-slate-500 hover:text-rose-400"><X size={13} /></button>
+                  </div>
+                ) : (
+                  <>
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-indigo-300 font-semibold">Habilidade {i + 1}</span>
-                  <button type="button" onClick={() => removeAbility(i)} className="text-slate-500 hover:text-rose-400"><X size={13} /></button>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => setEditingAbilityIndex(null)} className="text-xs text-slate-500 hover:text-indigo-300">Fechar</button>
+                    <button type="button" onClick={() => removeAbility(i)} className="text-slate-500 hover:text-rose-400"><X size={13} /></button>
+                  </div>
                 </div>
                 <input value={ab.name} onChange={e => updateAbility(i, "name", e.target.value)}
                   placeholder="Nome" className={inputCls} />
@@ -1671,16 +1814,16 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
                     <label>
                       <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Gatilho</span>
                       <select value={ab.rule_to_add?.trigger || ABILITY_TRIGGERS.ON_ATTACK} onChange={e => updateAbilityRuleDraft(i, "trigger", e.target.value)} className={inputCls}>
-                        {Object.values(ABILITY_TRIGGERS).map(trigger => (
-                          <option key={trigger} value={trigger}>{ABILITY_TRIGGER_LABELS[trigger]}</option>
+                        {ABILITY_TRIGGER_OPTIONS.map(option => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
                         ))}
                       </select>
                     </label>
                     <label>
                       <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Duracao da regra</span>
                       <select value={ab.rule_to_add?.duration || DURATIONS.INSTANT} onChange={e => updateAbilityRuleDraft(i, "duration", e.target.value)} className={inputCls}>
-                        {Object.values(DURATIONS).map(duration => (
-                          <option key={duration} value={duration}>{DURATION_LABELS[duration]}</option>
+                        {DURATION_OPTIONS.map(option => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
                         ))}
                       </select>
                     </label>
@@ -1692,8 +1835,8 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
                       <label className="min-w-[13rem] flex-[1_1_14rem]">
                         <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Tipo</span>
                         <select value={ab.rule_to_add?.condition_to_add?.type || ABILITY_CONDITION_TYPES.SOURCE_POSITION} onChange={e => updateAbilityRuleConditionDraft(i, "type", e.target.value)} className={inputCls}>
-                          {Object.values(ABILITY_CONDITION_TYPES).map(type => (
-                            <option key={type} value={type}>{ABILITY_CONDITION_LABELS[type]}</option>
+                          {ABILITY_CONDITION_OPTIONS.map(option => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
                           ))}
                         </select>
                       </label>
@@ -1748,8 +1891,11 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
                 <textarea value={ab.description} onChange={e => updateAbility(i, "description", e.target.value)}
                   placeholder="Descrição" rows={2}
                   className={inputCls + " resize-none"} />
+                  </>
+                )}
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -1794,17 +1940,17 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
                     <div className="grid gap-2 sm:grid-cols-2">
                       <label>
                         <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Gatilho</span>
-                        <select value={passive.rule_to_add?.trigger || ABILITY_TRIGGERS.BEFORE_DAMAGE_TAKEN} onChange={e => updatePassiveRuleDraft(i, "trigger", e.target.value)} className={inputCls}>
-                          {Object.values(ABILITY_TRIGGERS).map(trigger => (
-                            <option key={trigger} value={trigger}>{ABILITY_TRIGGER_LABELS[trigger]}</option>
+                        <select value={passive.rule_to_add?.trigger || ABILITY_TRIGGERS.BEFORE_ALLY_ACTIVE_TAKES_DAMAGE} onChange={e => updatePassiveRuleDraft(i, "trigger", e.target.value)} className={inputCls}>
+                          {ABILITY_TRIGGER_OPTIONS.map(option => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
                           ))}
                         </select>
                       </label>
                       <label>
                         <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Duracao da regra</span>
                         <select value={passive.rule_to_add?.duration || DURATIONS.INSTANT} onChange={e => updatePassiveRuleDraft(i, "duration", e.target.value)} className={inputCls}>
-                          {Object.values(DURATIONS).map(duration => (
-                            <option key={duration} value={duration}>{DURATION_LABELS[duration]}</option>
+                          {DURATION_OPTIONS.map(option => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
                           ))}
                         </select>
                       </label>
@@ -1816,8 +1962,8 @@ export function EditCommunityCardModal({ card, onClose, onSaved }) {
                         <label className="min-w-[13rem] flex-[1_1_14rem]">
                           <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">Tipo</span>
                           <select value={passive.rule_to_add?.condition_to_add?.type || ABILITY_CONDITION_TYPES.SOURCE_POSITION} onChange={e => updatePassiveRuleConditionDraft(i, "type", e.target.value)} className={inputCls}>
-                            {Object.values(ABILITY_CONDITION_TYPES).map(type => (
-                              <option key={type} value={type}>{ABILITY_CONDITION_LABELS[type]}</option>
+                            {ABILITY_CONDITION_OPTIONS.map(option => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
                             ))}
                           </select>
                         </label>
