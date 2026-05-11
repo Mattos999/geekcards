@@ -136,6 +136,10 @@ else {
 
   const weaknesses =
     computeEffectiveWeaknesses(card.natures || []);
+  const displayAbilities = [
+    ...((card.abilities || []).map(ability => ({ ability, passive: false }))),
+    ...((card.passive_abilities || []).map(ability => ({ ability, passive: true }))),
+  ];
 
   return (
 
@@ -342,12 +346,11 @@ else {
 
         {/* ABILITIES */}
         {showStats &&
-          Array.isArray(card.abilities) &&
-          card.abilities.length > 0 && (
+          displayAbilities.length > 0 && (
 
           <div className="mt-1.5 space-y-1">
 
-            {card.abilities.slice(0, 3).map((ab, i) => {
+            {displayAbilities.slice(0, 3).map(({ ability: ab, passive }, i) => {
               const directEffects = normalizeEffects(ab.effects);
               const advancedRules = normalizeAbilityRules(ab.rules);
               return (
@@ -364,7 +367,7 @@ else {
 
                     <span className="text-[9px] font-semibold text-indigo-300 leading-tight">
 
-                      {ab.name}
+                      {passive ? `Passiva: ${ab.name}` : ab.name}
 
                     </span>
 

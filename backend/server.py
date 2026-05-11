@@ -252,6 +252,7 @@ class OnlineDuelAction(BaseModel):
     zone: Optional[str] = None
     target_index: int = 0
     ability_index: Optional[int] = None
+    source_ref: Optional[dict] = None
     selected_target_ref: Optional[dict] = None
     damage_reaction_key: Optional[str] = None
     damage_reaction_keys: Optional[List[str]] = None
@@ -1570,7 +1571,7 @@ def _online_infer_source_ref(state: dict, side: str, source_card: Optional[dict]
     return None
 
 
-ONLINE_MANUAL_BENCH_TARGETS = {"SELF_BENCH_CHOOSE", "OPPONENT_BENCH_CHOOSE", "ANY_BENCH_CHOOSE"}
+ONLINE_MANUAL_CHOICE_TARGETS = {"SELF_BENCH_CHOOSE", "OPPONENT_BENCH_CHOOSE", "ANY_BENCH_CHOOSE"}
 ONLINE_TARGET_FILTER_TYPES = {
     "TARGET_NATURE_IN",
     "TARGET_CARD_TYPE_IN",
@@ -1587,19 +1588,64 @@ ONLINE_TARGET_FILTER_TYPES = {
 }
 
 
-def _online_manual_bench_sides(side: str, target: str) -> Optional[list[str]]:
+def _online_refs_for_player_cards(state: dict, side: str, zones: Optional[list[str]] = None) -> list[dict]:
+    zones = zones or ["active", "bench"]
+    player = state.get("players", {}).get(side, {})
+    refs = []
+    if "active" in zones and player.get("active"):
+        refs.append({"side": side, "zone": "active", "index": 0})
+    if "bench" in zones:
+        refs.extend(
+            {"side": side, "zone": "bench", "index": index}
+            for index, card in enumerate(player.get("bench") or [])
+            if card
+        )
+    return refs
+
+
+def _online_manual_refs_for_target(state: dict, side: str, target: str) -> Optional[list[dict]]:
     opponent_side = _opponent_side(side)
+    if target in ["SELF", "SELF_ACTIVE"]:
+        return _online_refs_for_player_cards(state, side, ["active"])
     if target in ["SELF_BENCH_CHOOSE", "SELF_BENCH", "ALL_SELF_BENCH", "SELF_BENCH_RANDOM"]:
-        return [side]
+        return _online_refs_for_player_cards(state, side, ["bench"])
+    if target in ["ANY_SELF_CARD", "ALL_SELF_CARDS", "ALL_ALLY"]:
+        return _online_refs_for_player_cards(state, side, ["active", "bench"])
+    if target == "OPPONENT_ACTIVE":
+        return _online_refs_for_player_cards(state, opponent_side, ["active"])
     if target in ["OPPONENT_BENCH_CHOOSE", "OPPONENT_BENCH", "ALL_OPPONENT_BENCH", "OPPONENT_BENCH_RANDOM"]:
-        return [opponent_side]
+        return _online_refs_for_player_cards(state, opponent_side, ["bench"])
+    if target in ["ANY_OPPONENT_CARD", "ALL_OPPONENT_CARDS", "ALL_ENEMY", "PREVIOUSLY_DAMAGED_OPPONENT"]:
+        return _online_refs_for_player_cards(state, opponent_side, ["active", "bench"])
     if target == "ANY_BENCH_CHOOSE":
-        return [side, opponent_side]
+        return _online_refs_for_player_cards(state, side, ["bench"]) + _online_refs_for_player_cards(state, opponent_side, ["bench"])
+    if target == "ANY":
+        return _online_refs_for_player_cards(state, opponent_side, ["active", "bench"]) + _online_refs_for_player_cards(state, side, ["active", "bench"])
     return None
 
 
 def _online_selected_ref_from_action(action: OnlineDuelAction, side: str) -> Optional[dict]:
     ref = action.selected_target_ref or None
+    if not isinstance(ref, dict):
+        return None
+    ref_side = ref.get("side")
+    if ref_side == "player":
+        ref_side = side
+    elif ref_side == "opponent":
+        ref_side = _opponent_side(side)
+    try:
+        ref_index = int(ref.get("index") or 0)
+    except (TypeError, ValueError):
+        ref_index = -1
+    return {
+        "side": ref_side,
+        "zone": ref.get("zone"),
+        "index": ref_index,
+    }
+
+
+def _online_source_ref_from_action(action: OnlineDuelAction, side: str) -> Optional[dict]:
+    ref = action.source_ref or None
     if not isinstance(ref, dict):
         return None
     ref_side = ref.get("side")
@@ -1633,19 +1679,20 @@ def _online_selected_refs_by_reaction_key_from_action(action: OnlineDuelAction, 
 def _online_manual_target_selection(state: dict, side: str, effect: dict, context: Optional[dict] = None) -> Optional[dict]:
     context = context or {}
     target = effect.get("target") or "OPPONENT_ACTIVE"
-    requires_manual = target in ONLINE_MANUAL_BENCH_TARGETS
+    requires_manual = target in ONLINE_MANUAL_CHOICE_TARGETS
     selected_ref = context.get("selected_target_ref")
-    if not requires_manual and not (effect.get("allow_manual_target") and selected_ref):
+    if not requires_manual and not effect.get("allow_manual_target"):
         return None
-    allowed_sides = _online_manual_bench_sides(side, target)
-    if not allowed_sides:
+    allowed_refs = _online_manual_refs_for_target(state, side, target)
+    if allowed_refs is None:
         return None
     if not selected_ref:
         return {"invalid": False, "refs": []}
-    valid = (
-        selected_ref.get("zone") == "bench" and
-        selected_ref.get("side") in allowed_sides and
-        bool(_online_ref_card(state, selected_ref))
+    valid = any(
+        ref.get("side") == selected_ref.get("side") and
+        ref.get("zone") == selected_ref.get("zone") and
+        ref.get("index") == selected_ref.get("index")
+        for ref in allowed_refs
     )
     filters_match = valid and _online_target_filters_match(state, selected_ref, effect.get("target_filters") or [])
     return {
@@ -1664,18 +1711,15 @@ def _online_target_filters_match(state: dict, target_ref: dict, filters: Optiona
 
 def _online_effect_needs_manual_target(effect: dict) -> bool:
     target = effect.get("target") or "OPPONENT_ACTIVE"
-    return target in ONLINE_MANUAL_BENCH_TARGETS or bool(effect.get("allow_manual_target") and _online_manual_bench_sides("p1", target))
+    return target in ONLINE_MANUAL_CHOICE_TARGETS or bool(effect.get("allow_manual_target") and _online_manual_refs_for_target({"players": {"p1": {}, "p2": {}}}, "p1", target) is not None)
 
 
 def _online_manual_choices_for_effect(state: dict, side: str, effect: dict) -> list[dict]:
-    choices = []
-    for allowed_side in _online_manual_bench_sides(side, effect.get("target") or "OPPONENT_ACTIVE") or []:
-        choices.extend(
-            {"side": allowed_side, "zone": "bench", "index": index}
-            for index, card in enumerate(state["players"][allowed_side].get("bench") or [])
-            if card and _online_target_filters_match(state, {"side": allowed_side, "zone": "bench", "index": index}, effect.get("target_filters") or [])
-        )
-    return choices
+    refs = _online_manual_refs_for_target(state, side, effect.get("target") or "OPPONENT_ACTIVE") or []
+    return [
+        ref for ref in refs
+        if _online_target_filters_match(state, ref, effect.get("target_filters") or [])
+    ]
 
 
 def _online_damage_reaction_key(source_ref: dict, ability_index: int, rule_index: int) -> str:
@@ -2595,15 +2639,28 @@ def _online_rule_trigger_matches(rule_trigger: Optional[str], trigger: str, sour
     if rule_trigger == "INTERRUPT":
         return trigger in ["BEFORE_DAMAGE_TAKEN", "BEFORE_DAMAGE_APPLIED", "BEFORE_ALLY_ACTIVE_TAKES_DAMAGE", "ALLY_ACTIVE_WOULD_BE_KNOCKED_OUT"]
     if rule_trigger == "PASSIVE_ACTIVE":
-        return (source_ref or {}).get("zone") == "active" and trigger in ["ON_TURN_START", "BEFORE_DAMAGE_TAKEN", "BEFORE_DAMAGE_APPLIED", "ON_DAMAGE_TAKEN"]
+        return (source_ref or {}).get("zone") == "active" and trigger in [
+            "ON_TURN_START",
+            "ON_TURN_END",
+            "BEFORE_DAMAGE_TAKEN",
+            "BEFORE_DAMAGE_APPLIED",
+            "BEFORE_KNOCKOUT",
+            "ALLY_ACTIVE_WOULD_BE_KNOCKED_OUT",
+            "ON_DAMAGE_TAKEN",
+            "ON_ENERGY_ATTACHED",
+        ]
     if rule_trigger == "PASSIVE_BENCH":
         return (source_ref or {}).get("zone") == "bench" and trigger in [
             "BEFORE_ATTACK",
             "ON_ATTACK",
             "ON_TURN_START",
+            "ON_TURN_END",
             "BEFORE_DAMAGE_TAKEN",
             "BEFORE_DAMAGE_APPLIED",
             "BEFORE_ALLY_ACTIVE_TAKES_DAMAGE",
+            "ALLY_ACTIVE_WOULD_BE_KNOCKED_OUT",
+            "BEFORE_KNOCKOUT",
+            "ON_DAMAGE_TAKEN",
             "AFTER_DAMAGE_APPLIED",
             "ON_ENERGY_ATTACHED",
             "ON_KNOCKOUT",
@@ -2641,24 +2698,30 @@ def _resolve_online_ability_rules_for_side(state: dict, side: str, trigger: str,
         if not source_card:
             continue
         for ability in _online_automatic_abilities(source_card):
+            current_source = _online_ref_card(next_state, source_ref)
+            if not current_source or not _can_pay_online_ability(current_source, ability):
+                continue
             for rule in sorted(ability.get("rules") or [], key=lambda item: int(item.get("priority") or 10)):
                 if not _online_rule_trigger_matches(rule.get("trigger"), trigger, source_ref):
+                    continue
+                rule_source = _online_ref_card(next_state, source_ref)
+                if not rule_source or not _can_pay_online_ability(rule_source, ability):
                     continue
                 rule_context = {
                     **context,
                     "trigger": trigger,
                     "source_ref": source_ref,
-                    "source_card": source_card,
+                    "source_card": rule_source,
                 }
                 if not all(_online_rule_condition_matches(next_state, condition, rule_context) for condition in rule.get("conditions") or []):
                     continue
-                next_state = _resolve_online_effects(next_state, side, source_card, sorted(rule.get("effects") or [], key=lambda item: int(item.get("priority") or 10)), {
+                next_state = _resolve_online_effects(next_state, side, rule_source, sorted(rule.get("effects") or [], key=lambda item: int(item.get("priority") or 10)), {
                     **rule_context,
                     "suppress_rule_triggers": True,
                 })
                 if rule.get("chainTrigger"):
                     next_state = _resolve_online_ability_rules_for_side(next_state, side, rule.get("chainTrigger"), {**rule_context, "chain_depth": int(context.get("chain_depth") or 0) + 1})
-                next_state = _with_duel_log(next_state, f"{source_card.get('name')} ativou {ability.get('name') or 'passiva'}.")
+                next_state = _with_duel_log(next_state, f"{rule_source.get('name')} ativou {ability.get('name') or 'passiva'}.")
     return next_state
 
 
@@ -2924,6 +2987,65 @@ def _apply_online_action(state: dict, side: str, action: OnlineDuelAction, skip_
         next_state = _with_duel_log(next_state, f"{player.get('name')} recuou.")
         next_state = _resolve_online_ability_rules_for_side(next_state, side, "ON_RETREAT", {"source_ref": {"side": side, "zone": "bench", "index": action.bench_index}, "target_ref": {"side": side, "zone": "active", "index": 0}})
         return _resolve_online_ability_rules_for_side(next_state, side, "ON_ENTER_ACTIVE", {"source_ref": {"side": side, "zone": "active", "index": 0}, "target_ref": {"side": side, "zone": "active", "index": 0}})
+
+    if action.kind == "manual_ability":
+        source_ref = _online_source_ref_from_action(action, side)
+        if (
+            not source_ref
+            or source_ref.get("side") != side
+            or source_ref.get("zone") not in ["active", "bench"]
+        ):
+            return state
+        source_card = _online_ref_card(next_state, source_ref)
+        abilities = _online_automatic_abilities(source_card)
+        ability_index = action.ability_index if action.ability_index is not None else 0
+        ability = abilities[ability_index] if source_card and 0 <= ability_index < len(abilities) else None
+        if not source_card or not ability:
+            return state
+        if not _can_pay_online_ability(source_card, ability):
+            return _with_duel_log(next_state, f"{source_card.get('name')} nao tem energia suficiente para ativar {ability.get('name')}.")
+        rules = [
+            rule for rule in sorted(ability.get("rules") or [], key=lambda item: int(item.get("priority") or 10))
+            if _online_rule_trigger_matches(rule.get("trigger"), "MANUAL_ABILITY", source_ref)
+        ]
+        if not rules:
+            return state
+        selected_ref = _online_selected_ref_from_action(action, side)
+        applied = False
+        for rule in rules:
+            rule_source = _online_ref_card(next_state, source_ref)
+            if not rule_source or not _can_pay_online_ability(rule_source, ability):
+                continue
+            if rule.get("once_per_turn") and rule_source.get("last_rule_turn") == next_state.get("turn_number"):
+                continue
+            rule_context = {
+                "selected_target_ref": selected_ref,
+                "target_ref": selected_ref,
+                "trigger": "MANUAL_ABILITY",
+                "source_ref": source_ref,
+                "source_card": rule_source,
+                "side": side,
+            }
+            if not all(_online_rule_condition_matches(next_state, condition, rule_context) for condition in rule.get("conditions") or []):
+                continue
+            next_state = _resolve_online_effects(
+                next_state,
+                side,
+                rule_source,
+                sorted(rule.get("effects") or [], key=lambda item: int(item.get("priority") or 10)),
+                rule_context,
+            )
+            applied = True
+            if rule.get("once_per_turn"):
+                rule_source = _online_ref_card(next_state, source_ref)
+                if rule_source:
+                    rule_source["last_rule_turn"] = next_state.get("turn_number")
+                    next_state = _online_set_ref_card(next_state, source_ref, rule_source)
+            if rule.get("chainTrigger"):
+                next_state = _resolve_online_ability_rules_for_side(next_state, side, rule.get("chainTrigger"), {**rule_context, "chain_depth": 1})
+        if not applied:
+            return state
+        return _with_duel_log(next_state, f"{source_card.get('name')} ativou {ability.get('name')}.")
 
     if action.kind == "ability":
         active = player.get("active")

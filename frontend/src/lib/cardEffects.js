@@ -668,6 +668,7 @@ export const ABILITY_TRIGGERS = {
   ON_OPPONENT_KO: "ON_OPPONENT_KO",
   PASSIVE_ACTIVE: "PASSIVE_ACTIVE",
   PASSIVE_BENCH: "PASSIVE_BENCH",
+  MANUAL_ABILITY: "MANUAL_ABILITY",
   ON_ITEM_USE: "ON_ITEM_USE",
   ON_ITEM_USED: "ON_ITEM_USED",
   ON_SUPPORT_PLAYED: "ON_SUPPORT_PLAYED",
@@ -700,6 +701,7 @@ export const ABILITY_TRIGGER_LABELS = {
   [ABILITY_TRIGGERS.ON_OPPONENT_KO]: "Ao nocautear oponente",
   [ABILITY_TRIGGERS.PASSIVE_ACTIVE]: "Passiva na ativa",
   [ABILITY_TRIGGERS.PASSIVE_BENCH]: "Passiva no banco",
+  [ABILITY_TRIGGERS.MANUAL_ABILITY]: "Ativacao manual",
   [ABILITY_TRIGGERS.ON_ITEM_USE]: "Ao usar item",
   [ABILITY_TRIGGERS.ON_ITEM_USED]: "Ao usar item",
   [ABILITY_TRIGGERS.ON_SUPPORT_PLAYED]: "Ao jogar suporte",
@@ -951,6 +953,7 @@ export const VISIBLE_ABILITY_TRIGGERS = new Set([
   ABILITY_TRIGGERS.AFTER_KNOCKOUT,
   ABILITY_TRIGGERS.PASSIVE_ACTIVE,
   ABILITY_TRIGGERS.PASSIVE_BENCH,
+  ABILITY_TRIGGERS.MANUAL_ABILITY,
   ABILITY_TRIGGERS.ON_RETREAT,
   ABILITY_TRIGGERS.ON_EVOLVE,
   ABILITY_TRIGGERS.ON_ENTER_ACTIVE,
@@ -1436,7 +1439,7 @@ export const normalizeEquipmentPassiveEffects = effects => (
 
 export const effectSummary = effect => {
   const type = effectTypeLabel(effect.type);
-  const target = targetLabel(effect.target);
+  const target = effect.target ? ` - ${targetLabel(effect.target)}` : "";
   const duration = effect.duration && effect.duration !== DURATIONS.INSTANT ? ` (${durationLabel(effect.duration)})` : "";
   const condition = effect.condition ? ` | ${conditionLabel(effect.condition)}` : "";
   const amount = effect.amount ? ` ${effect.amount}` : "";
@@ -1462,7 +1465,7 @@ export const effectSummary = effect => {
     : targetFilters.length > 1
       ? ` | Filtros: ${targetFilters.length}`
       : "";
-  return `${type}${amount} - ${target}${duration}${condition}${extra}${filters}`;
+  return `${type}${amount}${target}${duration}${condition}${extra}${filters}`;
 };
 
 export const normalizeAbilityConditions = conditions => (
@@ -1503,11 +1506,12 @@ export const normalizeAbilityRules = rules => (
 
 export const ruleSummary = rule => {
   const effects = normalizeEffects(rule.effects).map(effectSummary).join(" + ");
+  const duration = rule.duration && rule.duration !== DURATIONS.INSTANT ? ` [${durationLabel(rule.duration)}]` : "";
   const conditions = normalizeAbilityConditions(rule.conditions)
     .map(condition => {
       const valueLabel = abilityConditionValueLabel(condition);
       return `${abilityConditionLabel(condition.type)}${valueLabel ? `: ${valueLabel}` : ""}`;
     })
     .join(" | ");
-  return `${abilityTriggerLabel(rule.trigger)}${conditions ? ` (${conditions})` : ""}: ${effects}`;
+  return `${abilityTriggerLabel(rule.trigger)}${duration}${conditions ? ` (${conditions})` : ""}: ${effects}`;
 };

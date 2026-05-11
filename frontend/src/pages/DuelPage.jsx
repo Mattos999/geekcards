@@ -5,11 +5,12 @@ import { NATURE_COLORS } from "../lib/natures";
 import { EnergyCostSymbols } from "../components/EnergyCostSymbols";
 import { ENERGY_SYMBOLS } from "../lib/energyCosts";
 import { CommunityCardDetailModal } from "../components/CommunityCardDetailModal";
-import { EFFECT_TYPES, TARGETS, isManualTarget, normalizeAbilityRules, normalizeEffects, targetFiltersMatchCard } from "../lib/cardEffects";
+import { ABILITY_TRIGGERS, EFFECT_TYPES, TARGETS, isManualTarget, normalizeAbilityRules, normalizeEffects, targetFiltersMatchCard } from "../lib/cardEffects";
 import {
   DUEL_RULES,
   TURN_MOMENTS,
   activateAbility,
+  activateManualAbility,
   attachEnergy,
   canAttackThisTurn,
   canPayAbility,
@@ -29,7 +30,7 @@ import {
   setupBenchToHand,
   setupToBench,
 } from "../lib/duelEngine";
-import { Archive, BookOpen, Bot, ChevronRight, Loader2, Play, RotateCcw, Shield, Sparkles, Sword, X } from "lucide-react";
+import { Archive, Ban, BookOpen, Bot, ChevronRight, CircleHelp, Flame, Loader2, Lock, Moon, Play, Repeat2, RotateCcw, Shield, Skull, Snowflake, Sparkles, Sword, Timer, X, Zap } from "lucide-react";
 import { toast } from "sonner";
 
 const ENERGY_SYMBOL_CLASSES = {
@@ -46,6 +47,21 @@ const TURN_MOMENT_LABELS = {
   [TURN_MOMENTS.ACTION]: "Fase de acao",
   [TURN_MOMENTS.ATTACK]: "Ataque",
   [TURN_MOMENTS.TURN_END]: "Fim do turno",
+};
+
+const STATUS_ICONS = {
+  poison: { label: "Veneno", Icon: Skull, className: "border-emerald-300/40 bg-emerald-400/15 text-emerald-100" },
+  burn: { label: "Queimadura", Icon: Flame, className: "border-orange-300/40 bg-orange-400/15 text-orange-100" },
+  freeze: { label: "Congelado", Icon: Snowflake, className: "border-cyan-300/40 bg-cyan-400/15 text-cyan-100" },
+  paralyze: { label: "Paralisado", Icon: Zap, className: "border-yellow-300/40 bg-yellow-400/15 text-yellow-100" },
+  confuse: { label: "Confuso", Icon: CircleHelp, className: "border-fuchsia-300/40 bg-fuchsia-400/15 text-fuchsia-100" },
+  sleep: { label: "Sono", Icon: Moon, className: "border-indigo-300/40 bg-indigo-400/15 text-indigo-100" },
+  prevent_attack: { label: "Nao pode atacar", Icon: Ban, className: "border-rose-300/40 bg-rose-400/15 text-rose-100" },
+  prevent_retreat: { label: "Nao pode recuar", Icon: Lock, className: "border-slate-300/40 bg-slate-400/15 text-slate-100" },
+  block_retreat: { label: "Recuo bloqueado", Icon: Lock, className: "border-slate-300/40 bg-slate-400/15 text-slate-100" },
+  skip_next_attack: { label: "Pula proximo ataque", Icon: Ban, className: "border-rose-300/40 bg-rose-400/15 text-rose-100" },
+  cannot_use_same_attack: { label: "Nao pode repetir ataque", Icon: Repeat2, className: "border-amber-300/40 bg-amber-400/15 text-amber-100" },
+  damage_over_time: { label: "Dano continuo", Icon: Timer, className: "border-purple-300/40 bg-purple-400/15 text-purple-100" },
 };
 
 const cardId = (card, index) => `${card?.instance_id || card?.id || card?.name || "card"}-${index}`;
@@ -65,6 +81,30 @@ const AttachedEnergySymbols = ({ energies = [], compact = false, vertical = fals
           {ENERGY_SYMBOLS[energy] || ENERGY_SYMBOLS.Universal || energy?.[0]}
         </span>
       ))}
+    </div>
+  );
+};
+
+const CardStatusIcons = ({ statuses = [] }) => {
+  const uniqueStatuses = Array.from(new Set(statuses || []))
+    .map(status => ({ status, config: STATUS_ICONS[status] }))
+    .filter(item => item.config);
+  if (uniqueStatuses.length === 0) return null;
+
+  return (
+    <div className="mt-1 flex flex-wrap gap-1">
+      {uniqueStatuses.map(({ status, config }) => {
+        const Icon = config.Icon;
+        return (
+          <span
+            key={status}
+            title={config.label}
+            className={`inline-flex h-4 w-4 items-center justify-center rounded-full border ${config.className}`}
+          >
+            <Icon size={10} />
+          </span>
+        );
+      })}
     </div>
   );
 };
@@ -99,6 +139,7 @@ const CardThumb = ({ card, compact = false, hand = false, onClick }) => {
             {card.hp_remaining}/{card.hp || 0} HP
           </div>
         )}
+        <CardStatusIcons statuses={card.status_effects} />
       </div>
       {card.is_alpha && (
         <div className="absolute left-1 top-1 rounded bg-yellow-300 px-1 text-[8px] font-black text-slate-950">A</div>
@@ -353,13 +394,15 @@ const ManualTargetModal = ({ request, state, onChoose, onClose, onActivate, onCa
         ) : (
           <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 md:grid-cols-4">
             {choices.map(ref => {
-            const card = state?.players?.[ref.side]?.bench?.[ref.index];
+            const card = cardForRef(state, ref);
             if (!card) return null;
+            const ownerLabel = ref.side === "player" ? "Seu campo" : "Campo oponente";
+            const zoneLabel = ref.zone === "active" ? "ativa" : `banco ${ref.index + 1}`;
             return (
-              <div key={`${ref.side}-${ref.index}`} className="rounded-xl border border-slate-800 bg-slate-950/60 p-2 text-center">
+              <div key={`${ref.side}-${ref.zone}-${ref.index}`} className="rounded-xl border border-slate-800 bg-slate-950/60 p-2 text-center">
                 <CardThumb card={card} compact onClick={() => onCardClick?.(card)} />
                 <div className="mt-1 text-[10px] text-slate-500">
-                  {ref.side === "player" ? "Seu banco" : "Banco oponente"} {ref.index + 1}
+                  {ownerLabel}: {zoneLabel}
                 </div>
                 <button
                   type="button"
@@ -492,38 +535,86 @@ const abilityDamage = ability => {
   return damageEffect?.amount ?? ability.damage ?? 0;
 };
 
-const manualBenchSidesForTarget = target => {
-  if ([TARGETS.SELF_BENCH_CHOOSE, TARGETS.SELF_BENCH, TARGETS.ALL_SELF_BENCH, TARGETS.SELF_BENCH_RANDOM].includes(target)) {
-    return ["player"];
-  }
-  if ([TARGETS.OPPONENT_BENCH_CHOOSE, TARGETS.OPPONENT_BENCH, TARGETS.ALL_OPPONENT_BENCH, TARGETS.OPPONENT_BENCH_RANDOM].includes(target)) {
-    return ["opponent"];
-  }
-  if (target === TARGETS.ANY_BENCH_CHOOSE) {
-    return ["player", "opponent"];
-  }
+const refsForSideCards = (state, side, zones = ["active", "bench"]) => [
+  ...(zones.includes("active") && state?.players?.[side]?.active ? [{ side, zone: "active", index: 0 }] : []),
+  ...(zones.includes("bench")
+    ? (state?.players?.[side]?.bench || []).map((card, index) => card ? { side, zone: "bench", index } : null).filter(Boolean)
+    : []),
+];
+
+const cardForRef = (state, ref) => {
+  if (!ref) return null;
+  if (ref.zone === "active") return state?.players?.[ref.side]?.active || null;
+  if (ref.zone === "bench") return state?.players?.[ref.side]?.bench?.[ref.index] || null;
+  return null;
+};
+
+const manualRefsForTarget = (state, target) => {
+  if ([TARGETS.SELF, TARGETS.SELF_ACTIVE].includes(target)) return refsForSideCards(state, "player", ["active"]);
+  if ([TARGETS.SELF_BENCH_CHOOSE, TARGETS.SELF_BENCH, TARGETS.ALL_SELF_BENCH, TARGETS.SELF_BENCH_RANDOM].includes(target)) return refsForSideCards(state, "player", ["bench"]);
+  if ([TARGETS.ANY_SELF_CARD, TARGETS.ALL_SELF_CARDS, TARGETS.ALL_ALLY].includes(target)) return refsForSideCards(state, "player", ["active", "bench"]);
+  if (target === TARGETS.OPPONENT_ACTIVE) return refsForSideCards(state, "opponent", ["active"]);
+  if ([TARGETS.OPPONENT_BENCH_CHOOSE, TARGETS.OPPONENT_BENCH, TARGETS.ALL_OPPONENT_BENCH, TARGETS.OPPONENT_BENCH_RANDOM].includes(target)) return refsForSideCards(state, "opponent", ["bench"]);
+  if ([TARGETS.ANY_OPPONENT_CARD, TARGETS.ALL_OPPONENT_CARDS, TARGETS.ALL_ENEMY, TARGETS.PREVIOUSLY_DAMAGED_OPPONENT].includes(target)) return refsForSideCards(state, "opponent", ["active", "bench"]);
+  if (target === TARGETS.ANY_BENCH_CHOOSE) return [...refsForSideCards(state, "player", ["bench"]), ...refsForSideCards(state, "opponent", ["bench"])];
+  if (target === TARGETS.ANY) return [...refsForSideCards(state, "opponent", ["active", "bench"]), ...refsForSideCards(state, "player", ["active", "bench"])];
   return [];
 };
 
+const manualTargetableTargets = new Set([
+  TARGETS.SELF,
+  TARGETS.SELF_ACTIVE,
+  TARGETS.SELF_BENCH,
+  TARGETS.ALL_SELF_BENCH,
+  TARGETS.SELF_BENCH_RANDOM,
+  TARGETS.SELF_BENCH_CHOOSE,
+  TARGETS.ANY_SELF_CARD,
+  TARGETS.ALL_SELF_CARDS,
+  TARGETS.OPPONENT_ACTIVE,
+  TARGETS.OPPONENT_BENCH,
+  TARGETS.ALL_OPPONENT_BENCH,
+  TARGETS.OPPONENT_BENCH_RANDOM,
+  TARGETS.OPPONENT_BENCH_CHOOSE,
+  TARGETS.ANY_BENCH_CHOOSE,
+  TARGETS.ANY_OPPONENT_CARD,
+  TARGETS.ALL_OPPONENT_CARDS,
+  TARGETS.ANY,
+]);
+
 const effectNeedsManualTarget = effect => (
   isManualTarget(effect.target) ||
-  (Boolean(effect.allow_manual_target) && manualBenchSidesForTarget(effect.target).length > 0)
+  (Boolean(effect.allow_manual_target) && manualTargetableTargets.has(effect.target))
 );
 
 const manualTargetChoicesForEffect = (state, effect) => (
-  manualBenchSidesForTarget(effect.target).flatMap(side => (
-    (state?.players?.[side]?.bench || [])
-      .map((card, index) => card && targetFiltersMatchCard(card, effect.target_filters) ? { side, zone: "bench", index } : null)
-      .filter(Boolean)
-  ))
+  manualRefsForTarget(state, effect.target)
+    .filter(ref => targetFiltersMatchCard(cardForRef(state, ref), effect.target_filters))
 );
 
 const manualEffectsForAbility = ability => [
   ...normalizeEffects(ability?.effects),
   ...normalizeAbilityRules(ability?.rules)
-    .filter(rule => rule.trigger === "ON_ATTACK")
-    .flatMap(rule => rule.effects),
+    .filter(rule => rule.trigger === ABILITY_TRIGGERS.ON_ATTACK)
+    .flatMap(rule => normalizeEffects(rule.effects)),
 ].filter(effectNeedsManualTarget);
+
+const manualEffectsForManualAbility = ability => normalizeAbilityRules(ability?.rules)
+  .filter(rule => rule.trigger === ABILITY_TRIGGERS.MANUAL_ABILITY)
+  .flatMap(rule => normalizeEffects(rule.effects))
+  .filter(effectNeedsManualTarget);
+
+const manualAbilityEntriesForCard = card => [
+  ...((card?.abilities || []).map((ability, index) => ({ ability, abilityIndex: index }))),
+  ...((card?.passive_abilities || []).map((ability, index) => ({
+    ability,
+    abilityIndex: (card?.abilities || []).length + index,
+  }))),
+].filter(({ ability }) => normalizeAbilityRules(ability.rules).some(rule => rule.trigger === ABILITY_TRIGGERS.MANUAL_ABILITY));
+
+const isAttackAbility = ability => {
+  const rules = normalizeAbilityRules(ability?.rules);
+  return rules.length === 0 || rules.some(rule => rule.trigger === ABILITY_TRIGGERS.ON_ATTACK);
+};
 
 const manualEffectsForActionCard = card => normalizeEffects(card?.effects).filter(effectNeedsManualTarget);
 
@@ -893,18 +984,24 @@ export default function DuelPage() {
     applyAndBot(localAction);
   };
 
-  const openManualTargetRequest = ({ kind, abilityIndex = null, handIndex = null, effect }) => {
+  const manualTargetTitle = effect => {
+    if (effect.target === TARGETS.SELF_ACTIVE) return "Escolha sua carta ativa";
+    if (effect.target === TARGETS.OPPONENT_ACTIVE) return "Escolha a ativa oponente";
+    if (effect.target === TARGETS.ANY_SELF_CARD || effect.target === TARGETS.ALL_SELF_CARDS) return "Escolha uma carta aliada";
+    if (effect.target === TARGETS.ANY_OPPONENT_CARD || effect.target === TARGETS.ALL_OPPONENT_CARDS) return "Escolha uma carta oponente";
+    if (effect.target === TARGETS.SELF_BENCH_CHOOSE) return "Escolha uma carta do seu banco";
+    if (effect.target === TARGETS.OPPONENT_BENCH_CHOOSE) return "Escolha uma carta do banco oponente";
+    if (effect.target === TARGETS.ANY_BENCH_CHOOSE) return "Escolha uma carta de qualquer banco";
+    return "Escolha um alvo";
+  };
+
+  const openManualTargetRequest = ({ kind, abilityIndex = null, handIndex = null, sourceRef = null, effect }) => {
     const choices = manualTargetChoicesForEffect(duel, effect);
     if (choices.length === 0) {
-      toast.info("Nenhum alvo valido no banco.");
+      toast.info("Nenhum alvo valido.");
       return false;
     }
-    const title = effect.target === TARGETS.SELF_BENCH_CHOOSE
-      ? "Escolha uma carta do seu banco"
-      : effect.target === TARGETS.OPPONENT_BENCH_CHOOSE
-        ? "Escolha uma carta do banco oponente"
-        : "Escolha uma carta do banco";
-    setManualTargetRequest({ kind, abilityIndex, handIndex, effect, choices, title });
+    setManualTargetRequest({ kind, abilityIndex, handIndex, sourceRef, effect, choices, title: manualTargetTitle(effect) });
     return true;
   };
 
@@ -924,8 +1021,32 @@ export default function DuelPage() {
 
   const requestAbilityActivation = (ability, abilityIndex) => {
     const manualEffect = manualEffectsForAbility(ability)[0];
-    if (manualEffect && openManualTargetRequest({ kind: "ability", abilityIndex, effect: manualEffect })) return;
+    if (manualEffect) {
+      openManualTargetRequest({ kind: "ability", abilityIndex, effect: manualEffect });
+      return;
+    }
     executeAbility(abilityIndex);
+  };
+
+  const executeManualAbility = (sourceRef, abilityIndex, selectedTargetRef = null) => {
+    applyDuelAction(
+      state => activateManualAbility(state, { side: "player", sourceRef, abilityIndex, selectedTargetRef }),
+      {
+        kind: "manual_ability",
+        source_ref: sourceRef,
+        ability_index: abilityIndex,
+        selected_target_ref: selectedTargetRef,
+      }
+    );
+  };
+
+  const requestManualAbilityActivation = (sourceRef, ability, abilityIndex) => {
+    const manualEffect = manualEffectsForManualAbility(ability)[0];
+    if (manualEffect) {
+      openManualTargetRequest({ kind: "manual_ability", sourceRef, abilityIndex, effect: manualEffect });
+      return;
+    }
+    executeManualAbility(sourceRef, abilityIndex);
   };
 
   const executeActionCard = (handIndex, selectedTargetRef = null) => {
@@ -944,7 +1065,10 @@ export default function DuelPage() {
 
   const requestPlayActionCard = (card, handIndex) => {
     const manualEffect = manualEffectsForActionCard(card)[0];
-    if (manualEffect && openManualTargetRequest({ kind: "play_action", handIndex, effect: manualEffect })) return;
+    if (manualEffect) {
+      openManualTargetRequest({ kind: "play_action", handIndex, effect: manualEffect });
+      return;
+    }
     executeActionCard(handIndex);
   };
 
@@ -996,6 +1120,10 @@ export default function DuelPage() {
     if (!request) return;
     if (request.kind === "ability") {
       executeAbility(request.abilityIndex, ref);
+      return;
+    }
+    if (request.kind === "manual_ability") {
+      executeManualAbility(request.sourceRef, request.abilityIndex, ref);
       return;
     }
     if (request.kind === "play_action") {
@@ -1459,7 +1587,10 @@ export default function DuelPage() {
                             Energia
                           </button>
                         </div>
-                        {(player.active.abilities || []).map((ability, index) => (
+                        {(player.active.abilities || [])
+                          .map((ability, index) => ({ ability, index }))
+                          .filter(({ ability }) => isAttackAbility(ability))
+                          .map(({ ability, index }) => (
                           <button
                             key={index}
                             onClick={() => requestAbilityActivation(ability, index)}
@@ -1471,6 +1602,18 @@ export default function DuelPage() {
                               {abilityDamage(ability)}
                               <EnergyCostSymbols ability={ability} size="xs" />
                             </span>
+                          </button>
+                        ))}
+                        {manualAbilityEntriesForCard(player.active).map(({ ability, abilityIndex }) => (
+                          <button
+                            key={`manual-active-${abilityIndex}`}
+                            type="button"
+                            onClick={() => requestManualAbilityActivation({ side: "player", zone: "active", index: 0 }, ability, abilityIndex)}
+                            disabled={!canPlayerAct || !canPayAbility(player.active, ability)}
+                            className="flex w-full items-center justify-between gap-2 rounded-lg border border-cyan-400/25 bg-cyan-500/10 px-2 py-1 text-left text-[10px] text-cyan-100 disabled:opacity-40"
+                          >
+                            <span className="truncate">Ativar {ability.name}</span>
+                            <EnergyCostSymbols ability={ability} size="xs" />
                           </button>
                         ))}
                       </>
@@ -1509,6 +1652,17 @@ export default function DuelPage() {
                             Trocar
                           </button>
                         )}
+                        {manualAbilityEntriesForCard(card).map(({ ability, abilityIndex }) => (
+                          <button
+                            key={`manual-bench-${index}-${abilityIndex}`}
+                            type="button"
+                            onClick={() => requestManualAbilityActivation({ side: "player", zone: "bench", index }, ability, abilityIndex)}
+                            disabled={!canPlayerAct || !canPayAbility(card, ability)}
+                            className="rounded bg-cyan-500/15 px-1 py-0.5 text-[9px] text-cyan-100 disabled:opacity-40"
+                          >
+                            Ativar {ability.name}
+                          </button>
+                        ))}
                       </div>
                     )}
                   />

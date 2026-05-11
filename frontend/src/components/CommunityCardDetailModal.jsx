@@ -329,6 +329,19 @@ export function CommunityCardDetailModal({ card, onClose }) {
                         ))}
                       </div>
                     )}
+
+                    {normalizeAbilityRules(ability.rules).length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {normalizeAbilityRules(ability.rules).map((rule, ruleIndex) => (
+                          <span
+                            key={`${rule.trigger}-${ruleIndex}`}
+                            className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 text-[11px] text-cyan-100"
+                          >
+                            {ruleSummary(rule)}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

@@ -506,7 +506,7 @@ const handOwnerForEffect = (side, effect) => (
   String(effect.target || "").startsWith("OPPONENT") ? opponentOf(side) : side
 );
 
-const manualBenchTargets = new Set([
+const manualChoiceTargets = new Set([
   TARGETS.SELF_BENCH_CHOOSE,
   TARGETS.OPPONENT_BENCH_CHOOSE,
   TARGETS.ANY_BENCH_CHOOSE,
@@ -529,35 +529,63 @@ const selectedTargetRefFromContext = context => {
   };
 };
 
-const manualBenchSidesForTarget = (side, target) => {
+const refsForPlayerCards = (state, side, zones = ["active", "bench"]) => [
+  ...(zones.includes("active") && state.players[side]?.active ? [{ side, zone: "active", index: 0 }] : []),
+  ...(zones.includes("bench")
+    ? (state.players[side]?.bench || []).map((card, index) => card ? { side, zone: "bench", index } : null).filter(Boolean)
+    : []),
+];
+
+const manualRefsForTarget = (state, side, target) => {
   const opponentSide = opponentOf(side);
+  if ([TARGETS.SELF, TARGETS.SELF_ACTIVE].includes(target)) {
+    return refsForPlayerCards(state, side, ["active"]);
+  }
   if ([TARGETS.SELF_BENCH_CHOOSE, TARGETS.SELF_BENCH, TARGETS.ALL_SELF_BENCH, TARGETS.SELF_BENCH_RANDOM].includes(target)) {
-    return [side];
+    return refsForPlayerCards(state, side, ["bench"]);
+  }
+  if ([TARGETS.ANY_SELF_CARD, TARGETS.ALL_SELF_CARDS, TARGETS.ALL_ALLY].includes(target)) {
+    return refsForPlayerCards(state, side, ["active", "bench"]);
+  }
+  if (target === TARGETS.OPPONENT_ACTIVE) {
+    return refsForPlayerCards(state, opponentSide, ["active"]);
   }
   if ([TARGETS.OPPONENT_BENCH_CHOOSE, TARGETS.OPPONENT_BENCH, TARGETS.ALL_OPPONENT_BENCH, TARGETS.OPPONENT_BENCH_RANDOM].includes(target)) {
-    return [opponentSide];
+    return refsForPlayerCards(state, opponentSide, ["bench"]);
+  }
+  if ([TARGETS.ANY_OPPONENT_CARD, TARGETS.ALL_OPPONENT_CARDS, TARGETS.ALL_ENEMY, TARGETS.PREVIOUSLY_DAMAGED_OPPONENT].includes(target)) {
+    return refsForPlayerCards(state, opponentSide, ["active", "bench"]);
   }
   if (target === TARGETS.ANY_BENCH_CHOOSE) {
-    return [side, opponentSide];
+    return [
+      ...refsForPlayerCards(state, side, ["bench"]),
+      ...refsForPlayerCards(state, opponentSide, ["bench"]),
+    ];
+  }
+  if (target === TARGETS.ANY) {
+    return [
+      ...refsForPlayerCards(state, opponentSide, ["active", "bench"]),
+      ...refsForPlayerCards(state, side, ["active", "bench"]),
+    ];
   }
   return null;
 };
 
 const manualTargetRefsForEffect = (state, side, effect, context = {}) => {
-  const requiresManualTarget = manualBenchTargets.has(effect.target);
+  const requiresManualTarget = manualChoiceTargets.has(effect.target);
   const selectedRef = selectedTargetRefFromContext(context);
-  if (!requiresManualTarget && !(effect.allow_manual_target && selectedRef)) return null;
+  if (!requiresManualTarget && !effect.allow_manual_target) return null;
 
-  const allowedSides = manualBenchSidesForTarget(side, effect.target);
-  if (!allowedSides) return null;
+  const allowedRefs = manualRefsForTarget(state, side, effect.target);
+  if (!allowedRefs) return null;
   if (!selectedRef) return { applies: true, invalid: false, refs: [] };
 
-  const valid = (
-    selectedRef.zone === "bench" &&
-    allowedSides.includes(selectedRef.side) &&
-    Boolean(targetCard(state.players[selectedRef.side], "bench", selectedRef.index))
-  );
-  const selectedCard = valid ? targetCard(state.players[selectedRef.side], "bench", selectedRef.index) : null;
+  const valid = allowedRefs.some(ref => (
+    ref.side === selectedRef.side &&
+    ref.zone === selectedRef.zone &&
+    ref.index === selectedRef.index
+  ));
+  const selectedCard = valid ? targetCard(state.players[selectedRef.side], selectedRef.zone, selectedRef.index) : null;
   const filtersMatch = !valid || targetFiltersMatchCard(selectedCard, effect.target_filters);
 
   return {
@@ -993,9 +1021,13 @@ const ruleTriggerMatches = (ruleTrigger, trigger, sourceRef) => {
   if (ruleTrigger === ABILITY_TRIGGERS.PASSIVE_ACTIVE) {
     return sourceRef?.zone === "active" && [
       ABILITY_TRIGGERS.ON_TURN_START,
+      ABILITY_TRIGGERS.ON_TURN_END,
       ABILITY_TRIGGERS.BEFORE_DAMAGE_TAKEN,
       ABILITY_TRIGGERS.BEFORE_DAMAGE_APPLIED,
+      ABILITY_TRIGGERS.BEFORE_KNOCKOUT,
+      ABILITY_TRIGGERS.ALLY_ACTIVE_WOULD_BE_KNOCKED_OUT,
       ABILITY_TRIGGERS.ON_DAMAGE_TAKEN,
+      ABILITY_TRIGGERS.ON_ENERGY_ATTACHED,
     ].includes(trigger);
   }
   if (ruleTrigger === ABILITY_TRIGGERS.PASSIVE_BENCH) {
@@ -1003,9 +1035,13 @@ const ruleTriggerMatches = (ruleTrigger, trigger, sourceRef) => {
       ABILITY_TRIGGERS.BEFORE_ATTACK,
       ABILITY_TRIGGERS.ON_ATTACK,
       ABILITY_TRIGGERS.ON_TURN_START,
+      ABILITY_TRIGGERS.ON_TURN_END,
       ABILITY_TRIGGERS.BEFORE_DAMAGE_TAKEN,
       ABILITY_TRIGGERS.BEFORE_DAMAGE_APPLIED,
       ABILITY_TRIGGERS.BEFORE_ALLY_ACTIVE_TAKES_DAMAGE,
+      ABILITY_TRIGGERS.ALLY_ACTIVE_WOULD_BE_KNOCKED_OUT,
+      ABILITY_TRIGGERS.BEFORE_KNOCKOUT,
+      ABILITY_TRIGGERS.ON_DAMAGE_TAKEN,
       ABILITY_TRIGGERS.AFTER_DAMAGE_APPLIED,
       ABILITY_TRIGGERS.ON_ENERGY_ATTACHED,
       ABILITY_TRIGGERS.ON_KNOCKOUT,
@@ -1031,19 +1067,23 @@ function resolveAbilityRules(state, side, sourceRef, trigger, context = {}) {
   if (!source) return state;
 
   return automaticAbilities(source).reduce((next, ability) => {
+    const currentSource = targetCard(next.players[sourceRef.side], sourceRef.zone, sourceRef.index);
+    if (!currentSource || !canPayAbility(currentSource, ability)) return next;
     const rules = sortByPriority(normalizeAbilityRules(ability.rules).filter(rule => ruleTriggerMatches(rule.trigger, trigger, sourceRef)));
     if (rules.length === 0) return next;
 
     return rules.reduce((afterRule, rule) => {
-      if (rule.once_per_turn && source.last_rule_turn === afterRule.turn_number) return afterRule;
+      const ruleSource = targetCard(afterRule.players[sourceRef.side], sourceRef.zone, sourceRef.index);
+      if (!ruleSource || !canPayAbility(ruleSource, ability)) return afterRule;
+      if (rule.once_per_turn && ruleSource.last_rule_turn === afterRule.turn_number) return afterRule;
       const ruleContext = {
         ...context,
         trigger,
         sourceRef,
-        sourceCard: source,
+        sourceCard: ruleSource,
       };
       if (!rule.conditions.every(condition => checkAbilityCondition(afterRule, condition, ruleContext))) return afterRule;
-      let resolved = resolveEffects(afterRule, side, source, sortByPriority(rule.effects), {
+      let resolved = resolveEffects(afterRule, side, ruleSource, sortByPriority(rule.effects), {
         ...ruleContext,
         suppressRuleTriggers: true,
         skipKnockoutCheck: true,
@@ -1055,7 +1095,7 @@ function resolveAbilityRules(state, side, sourceRef, trigger, context = {}) {
         const chainSide = rule.chainTarget === "OPPONENT" ? opponentOf(side) : side;
         resolved = resolveChainTrigger(resolved, chainSide, rule.chainTrigger, ruleContext);
       }
-      return withLog(resolved, `${source.name} ativou ${ability.name}.`);
+      return withLog(resolved, `${ruleSource.name} ativou ${ability.name}.`);
     }, next);
   }, state);
 }
@@ -2330,6 +2370,67 @@ export function activateAbility(state, side, abilityIndex, context = {}) {
     active: p.active ? { ...p.active, last_used_ability_name: ability.name } : p.active,
   }));
   return next.winner ? next : endTurn(next);
+}
+
+export function activateManualAbility(state, {
+  side = "player",
+  sourceRef,
+  abilityIndex = 0,
+  selectedTargetRef = null,
+} = {}) {
+  if (state.phase !== "battle" || state.winner || state.turn !== side) return state;
+  const drawBlock = requireDrawBeforeAction(state, side);
+  if (drawBlock) return drawBlock;
+  if (!sourceRef || sourceRef.side !== side || !["active", "bench"].includes(sourceRef.zone)) return state;
+
+  const source = targetCard(state.players[side], sourceRef.zone, sourceRef.index);
+  const abilities = automaticAbilities(source);
+  const ability = abilities[abilityIndex];
+  if (!source || !ability) return state;
+  if (!canPayAbility(source, ability)) {
+    return withLog(state, `${source.name} nao tem energia suficiente para ativar ${ability.name}.`);
+  }
+
+  const rules = sortByPriority(
+    normalizeAbilityRules(ability.rules)
+      .filter(rule => ruleTriggerMatches(rule.trigger, ABILITY_TRIGGERS.MANUAL_ABILITY, sourceRef))
+  );
+  if (rules.length === 0) return state;
+
+  let next = state;
+  let applied = false;
+  rules.forEach(rule => {
+    const currentSource = targetCard(next.players[side], sourceRef.zone, sourceRef.index);
+    if (!currentSource || !canPayAbility(currentSource, ability)) return;
+    if (rule.once_per_turn && currentSource.last_rule_turn === next.turn_number) return;
+
+    const ruleContext = {
+      selectedTargetRef,
+      targetRef: selectedTargetRef,
+      trigger: ABILITY_TRIGGERS.MANUAL_ABILITY,
+      sourceRef,
+      sourceCard: currentSource,
+      side,
+    };
+    if (!rule.conditions.every(condition => checkAbilityCondition(next, condition, ruleContext))) return;
+
+    next = resolveEffects(next, side, currentSource, sortByPriority(rule.effects), {
+      ...ruleContext,
+      skipKnockoutCheck: true,
+    });
+    applied = true;
+    if (rule.once_per_turn) {
+      next = updateCardRef(next, sourceRef, card => ({ ...card, last_rule_turn: next.turn_number }));
+    }
+    if (rule.chainTrigger) {
+      const chainSide = rule.chainTarget === "OPPONENT" ? opponentOf(side) : side;
+      next = resolveChainTrigger(next, chainSide, rule.chainTrigger, ruleContext);
+    }
+  });
+
+  if (!applied) return state;
+  next = withLog(next, `${source.name} ativou ${ability.name}.`);
+  return resolveKnockouts(next, side);
 }
 
 export function playActionCard(state, side, handIndex, context = {}) {
